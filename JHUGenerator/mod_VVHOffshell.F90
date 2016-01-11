@@ -365,13 +365,15 @@ function CurrentPrefactor(id,hel,useA)
 end function CurrentPrefactor
 
 ! Returns i*charge*J^mu_L/R
-function Vcurrent(p,id,hel,idV,useAcoupl)
+function Vcurrent(p,id,hel,idV,useAcoupl,Ub_out,V_out)
    implicit none
    real(dp), intent(in) :: p(1:4,1:2)
    integer, intent(in) :: id(1:2)
    integer, intent(in) :: hel
    integer, intent(out) :: idV
    logical, optional :: useAcoupl
+   complex(dp), optional :: Ub_out(4)
+   complex(dp), optional :: V_out(4)
    integer :: idc(1:2)
    complex(dp) :: Vcurrent(4),Ub(4),V(4),prefactor
    integer :: testAcoupl
@@ -394,6 +396,12 @@ function Vcurrent(p,id,hel,idV,useAcoupl)
    else
       Ub(:)=ubar0(cmplx(p(1:4,2),kind=dp),hel)
       V(:)=v0(cmplx(p(1:4,1),kind=dp),-hel)
+   endif
+   if(present(Ub_out)) then
+      Ub_out = Ub
+   endif
+   if(present(V_out)) then
+      V_out = V
    endif
    ! 1=E,2=px,3=py,4=pz
    ! This is an expression for Ub(+/-)) Gamma^\mu V(-/+)
@@ -1714,56 +1722,63 @@ function EuclideanMagnitude_Complex(ND,p)
 end function EuclideanMagnitude_Complex
 
 
-function getCurrents_VA(p,id,hel,tryA,isWBF,current,qV,idV)
+function getCurrents_VA(p,id,hel,current,currentA,Ub,V,qV,idV,idA)
    implicit none
-   real(dp), intent(in) :: p(1:4,1:8) ! 17,28 - 34,56
-   integer, intent(in) :: id(1:8)
+   real(dp), intent(in) :: p(1:4,1:2,1:4) ! 17,28 - 34,56
+   integer, intent(in) :: id(1:2,1:4)
    integer, intent(in) :: hel(1:4)
-   integer, intent(in) :: tryA(1:2) ! First and second A current index
-   logical, intent(in) :: isWBF
    complex(dp), intent(out) :: current(1:4,1:4) ! Lorentz, current
+   complex(dp), intent(out) :: currentA(1:4,1:4) ! Lorentz, current
+   complex(dp), intent(out) :: Ub(1:4,1:4) ! Lorentz, current
+   complex(dp), intent(out) :: V(1:4,1:4) ! Lorentz, current
    real(dp), intent(out) :: qV(1:4,1:4)
    integer, intent(out) :: idV(1:4)
-   real(dp) :: pout(1:4,1:8),eucmagtmp
-   integer :: idout(1:8)
+   integer, intent(out) :: idA(1:4)
+   real(dp) :: eucmagtmp
    logical :: getCurrents_VA
    integer :: i
-   integer :: order(1:2,1:4)
 
    getCurrents_VA=.true.
    eucmagtmp=0_dp
-
-   pout(:,3:8)=p(:,3:8)
-   pout(:,1)=-p(:,1)
-   pout(:,2)=-p(:,2)
-
-   idout(3:8)=id(3:8)
-   idout(1)=-id(1)
-   idout(2)=-id(2)
-
    current(:,:)=czero
-   if(isWBF) then
-      order(:,1) = (/ 1, 7 /)
-      order(:,2) = (/ 2, 8 /)
-   else
-      order(:,1) = (/ 1, 2 /)
-      order(:,2) = (/ 7, 8 /)
-   endif
-   order(:,3) = (/ 3, 4 /)
-   order(:,4) = (/ 5, 6 /)
+   currentA(:,:)=czero
+   Ub(:,:)=czero
+   V(:,:)=czero
 
    do i=1,4
-      if(i.eq.tryA(1) .or. i.eq.tryA(2)) then
-         current(:,i)=Vcurrent((/pout(:,order(1,i)),pout(:,order(2,i))/),(/idout(order(1,i)),idout(order(2,i))/),hel(i),idV(i),useAcoupl=.true.)
+      if(id(1,i).ne.Not_a_particle_ .and. id(2,i).ne.Not_a_particle_) then
+         current(:,i)=Vcurrent(p(:,:,i),id(:,i),hel(i),idV(i),Ub_out=Ub,V_out=V)
+         currentA(:,i)=Vcurrent(p(:,:,i),id(:,i),hel(i),idA(i),useAcoupl=.true.) ! Ub_out=Ub,V_out=V is not needed since it is the same
+         qV(:,i) = p(:,1,i)+p(:,2,i)
+         if( (idV(i).eq.Not_a_particle_).or.(EuclideanMagnitude_Complex(4,current(:,i)).eq.0_dp) ) then ! If this fails, Pho_ also fails
+            getCurrents_VA=.false.
+            exit
+         else
+            current(:,i)=VectorPropagator(idV(i),qV(:,i),current(:,i))
+            if(idA(i).ne.Not_a_particle_) then
+               currentA(:,i)=VectorPropagator(idA(i),qV(:,i),currentA(:,i))
+            endif
+         endif
+      elseif(id(1,i).ne.Not_a_particle_) then
+         current(:,i)=pol_massless(p(:,2,i),hel(i))
+         currentA(:,i)=current(:,i)
+         idV(i)=Pho_
+         idA(i)=idV(i)
+         qV(:,i) = p(:,2,i)
+         if( EuclideanMagnitude_Complex(4,current(:,i)).eq.0_dp ) then
+            getCurrents_VA=.false.
+            exit
+         endif
       else
-         current(:,i)=Vcurrent((/pout(:,order(1,i)),pout(:,order(2,i))/),(/idout(order(1,i)),idout(order(2,i))/),hel(i),idV(i))
-      endif
-      qV(:,i) = pout(:,order(1,i))+pout(:,order(2,i))
-      if( (idV(i).eq.Not_a_particle_).or.(EuclideanMagnitude_Complex(4,current(:,i)).eq.0_dp) ) then
-         getCurrents_VA=.false.
-         exit
-      else
-         current(:,i)=VectorPropagator(idV(i),qV(:,i),current(:,i))
+         current(:,i)=pol_massless(p(:,1,i),hel(i))
+         currentA(:,i)=current(:,i)
+         idV(i)=Pho_
+         idA(i)=idV(i)
+         qV(:,i) = p(:,1,i)
+         if( EuclideanMagnitude_Complex(4,current(:,i)).eq.0_dp ) then
+            getCurrents_VA=.false.
+            exit
+         endif
       endif
    enddo
    return
@@ -2218,5 +2233,189 @@ end subroutine amp_tchannelV_VffVfpfp
 
 
 
+subroutine getSwapCombinations(nhel,p,id,hel,combination,combination_p,ncomb)
+   use ModParameters
+   use ModMisc
+   implicit none
+   integer, parameter :: nffb=2
+   real(dp), intent(in) :: p(1:4,1:nffb,:) ! Mandatory input is a fermion-antifermion pair! Does not have to be ordered
+   integer, intent(in) :: id(1:nffb,:) ! Mandatory input is a fermion-antifermion pair! Does not have to be ordered
+   integer, intent(in) :: hel(:) ! Has to have NDim(hel)=NDim(id)/2
+   integer, dimension (:,:,:), allocatable :: combination
+   real(dp), dimension (:,:,:,:), allocatable :: combination_p
+   integer, intent(out) :: ncomb
+   integer, intent(out) :: nhel
+   integer, dimension (:,:), allocatable :: combination_first
+   real(dp), dimension (:,:,:), allocatable :: combination_p_first
+   real(dp) :: tmpP
+   integer :: npart,nmom,ih,ihtmp,if,ip,idV_tmp,niter,c,mu
+
+   nhel = size(hel)
+   npart = size(id)
+   nmom = size(p)/4
+   if(npart .ne. nffb*nhel) then
+      print *,"getSwapCombinations :: npart .ne. 2*nhel"
+      stop
+   endif
+   if(nmom.ne.npart) then
+      print *,"getSwapCombinations :: nmom.ne.npart"
+      stop
+   endif
+
+   allocate(combination_first(nffb,nhel))
+   allocate(combination_p_first(4,nffb,nhel))
+   
+   ! Group the ids
+   do if=1,nffb
+   do ih=1,nhel
+      if(convertLHE(id(if,ih)).lt.0) then
+         combination_first(2,ih) = id(if,ih)
+         combination_p_first(2,ih) = p(:,if,ih)
+      else
+         combination_first(1,ih) = id(if,ih)
+         combination_p_first(1,ih) = p(:,if,ih)
+      endif
+   enddo
+   enddo
+   ! Count the combinations first
+   ncomb=1
+   do ih=1,nhel
+      do ihtmp=ih,nhel ! ihtmp=ih still would not check whether the starting combination makes sense
+         if(hel(ih).eq.hel(ihtmp) .and. ih.ne.ihtmp) then
+            idV_tmp=CoupledVertex((/combination_first(1,ih),combination_first(2,ihtmp)/),hel(ih))
+            if(idV_tmp.eq.Not_a_particle_) idV_tmp = CoupledVertex_FlavorViolating((/combination_first(1,ih),combination_first(2,ihtmp)/),hel(ih))
+            if(idV_tmp.ne.Not_a_particle_) ncomb = ncomb+1
+         endif
+      enddo
+   enddo
+
+   allocate(combination(nffb,nhel,ncomb))
+   allocate(combination_p(4,nffb,nhel,ncomb))
+   do if=1,nffb
+   do ih=1,nhel
+   do c=1,ncomb
+      combination(if,ih,c)=combination_first(if,ih)
+      combination_p(:,if,ih,c)=combination_p_first(:,if,ih)
+   enddo
+   enddo
+   enddo
+   deallocate (combination_p_first) ! No longer needed
+
+   ! Record through the same loop procedure
+   niter=1
+   do ih=1,nhel
+      do ihtmp=ih,nhel
+         if(hel(ih).eq.hel(ihtmp) .and. ih.ne.ihtmp) then
+            idV_tmp=CoupledVertex((/combination_first(1,ih),combination_first(2,ihtmp)/),hel(ih))
+            if(idV_tmp.eq.Not_a_particle_) idV_tmp = CoupledVertex_FlavorViolating((/combination_first(1,ih),combination_first(2,ihtmp)/),hel(ih))
+            if(idV_tmp.ne.Not_a_particle_) then
+               niter = niter+1
+               call swapi(combination(2,ih,niter),combination(2,ihtmp,niter))
+               do mu=1,4
+                  tmpP = combination_p(mu,2,ih,niter)
+                  combination_p(mu,2,ih,niter)=combination_p(mu,2,ihtmp,niter)
+                  combination_p(mu,2,ihtmp,niter)=tmpP
+               enddo
+            endif
+         endif
+      enddo
+   enddo
+   deallocate (combination_first) ! No longer needed
+
+   if(ncomb .ne. niter) then
+      print *,"getSwapCombinations :: ncomb .ne. niter!"
+      stop
+   endif
+   return
+end subroutine getSwapCombinations
+
+
+subroutine getSwapCurrents_VA(p,id,hel,isWBF , ncomb , current,currentA,Ub,V,qV,idV,idA,combination_id,combination_p)
+   implicit none
+   real(dp), intent(in) :: p(1:4,1:8)
+   integer, intent(in) :: id(1:8)
+   integer, intent(in) :: hel(1:4)
+   logical, intent(in) :: isWBF
+   integer, intent(out) :: ncomb
+   complex(dp), dimension (:,:,:), allocatable :: current ! (1:4,1:4,1:ncomb) Lorentz, current
+   complex(dp), dimension (:,:,:), allocatable :: currentA ! (1:4,1:4,1:ncomb) Lorentz, current
+   complex(dp), dimension (:,:,:), allocatable :: Ub ! (1:4,1:4,1:ncomb) Lorentz, current
+   complex(dp), dimension (:,:,:), allocatable :: V ! (1:4,1:4,1:ncomb) Lorentz, current
+   real(dp), dimension (:,:,:), allocatable :: qV ! (1:4,1:4,1:ncomb)
+   integer, dimension (:,:,:), allocatable :: idV ! (1:4,1:ncomb)
+   integer, dimension (:,:,:), allocatable :: idA ! (1:4,1:ncomb)
+   integer, dimension (:,:,:), allocatable :: combination_id
+   real(dp), dimension (:,:,:,:), allocatable :: combination_p
+   real(dp), intent(in) :: pout(1:4,1:2,1:4)
+   integer, intent(in) :: idout(1:2,1:4)
+   integer :: c
+
+   if(isWBF) then
+      idout(1,1)=-id(1)
+      idout(2,1)=id(7)
+      idout(1,2)=-id(2)
+      idout(2,2)=id(8)
+      pout(1,1)=-p(1)
+      pout(2,1)=p(7)
+      pout(1,2)=-p(2)
+      pout(2,2)=p(8)
+   else
+      idout(1,1)=-id(1)
+      idout(2,1)=-id(2)
+      idout(1,2)=id(7)
+      idout(2,2)=id(8)
+      pout(1,1)=-p(1)
+      pout(2,1)=-p(2)
+      pout(1,2)=p(7)
+      pout(2,2)=p(8)
+   endif
+   idout(1,3)=id(3)
+   idout(2,3)=id(4)
+   idout(1,4)=id(5)
+   idout(2,4)=id(6)
+   pout(1,3)=p(3)
+   pout(2,3)=p(4)
+   pout(1,4)=p(5)
+   pout(2,4)=p(6)
+
+   call getSwapCombinations(4,pout,idout,hel,combination_id,combination_p,ncomb)
+   allocate(current(4,4,ncomb))
+   allocate(currentA(4,4,ncomb))
+   allocate(Ub(4,4,ncomb))
+   allocate(V(4,4,ncomb))
+   allocate(qV(4,4,ncomb))
+   allocate(idV(4,ncomb))
+   allocate(idA(4,ncomb))
+
+   do c=1,ncomb
+      getCurrents_VA(pout,idout,hel,current(:,:,c),currentA(:,:,c),Ub(:,:,c),V(:,:,c),qV(:,:,c),idV(:,c),idA(:,c))
+   enddo
+
+   return
+end subroutine getSwapCurrents_VA
+
+subroutine DeallocateAll(current,currentA,Ub,V,qV,idV,idA,combination_id,combination_p)
+   implicit none
+   complex(dp), dimension (:,:,:), allocatable :: current ! (1:4,1:4,1:ncomb) Lorentz, current
+   complex(dp), dimension (:,:,:), allocatable :: currentA ! (1:4,1:4,1:ncomb) Lorentz, current
+   complex(dp), dimension (:,:,:), allocatable :: Ub ! (1:4,1:4,1:ncomb) Lorentz, current
+   complex(dp), dimension (:,:,:), allocatable :: V ! (1:4,1:4,1:ncomb) Lorentz, current
+   real(dp), dimension (:,:,:), allocatable :: qV ! (1:4,1:4,1:ncomb)
+   integer, dimension (:,:,:), allocatable :: idV ! (1:4,1:ncomb)
+   integer, dimension (:,:,:), allocatable :: idA ! (1:4,1:ncomb)
+   integer, dimension (:,:,:), allocatable :: combination_id
+   real(dp), dimension (:,:,:,:), allocatable :: combination_p
+
+   deallocate(current)
+   deallocate(currentA)
+   deallocate(Ub)
+   deallocate(V)
+   deallocate(qV)
+   deallocate(idV)
+   deallocate(idA)
+   deallocate(combination_id)
+   deallocate(combination_p)
+   return
+end subroutine deallocateAll
 
 end module ModVVHOffshell
