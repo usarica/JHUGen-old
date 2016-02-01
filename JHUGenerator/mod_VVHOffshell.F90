@@ -17,15 +17,19 @@ private
    real(8), parameter :: eW_cW = eW/cw ! g/costw
    integer, parameter :: isW=1,isZ=2,isA=0 ! W+:1,W-:-1,Z:2,A:0
 
+   ! Temporary parameters
+   logical, parameter :: doSignal=.true.
+   logical, parameter :: doBkg=.true.
 
-!----- notation for subroutines
+
+!----- List of  subroutines
+   public :: amp_WWZZ, amp_WWAA_4to4, amp_WWZA_4to4, amp_WWWW, amp_WW_V_4f, amp_tchannelV_VffVfpfp, getSwapCombinations, getSwapCurrents_VA, DeallocateAll
 !  public :: EvalAmp_VVHOffshell
 
 contains
 
 
 
-!  subroutine EvalAmp_VHiggs(id,helicity,MomExt,inv_mass,mass,me2)
 
 ! Use Weyl basis to make Psi=(Psi_R,Psi_L)
 function gammaMatrix()
@@ -1785,6 +1789,408 @@ function getCurrents_VA(p,id,hel,current,currentA,Ub,V,qV,idV,idA)
 end function getCurrents_VA
 
 
+subroutine amp_VVHVV(qV,idV,idA,currentV,currentA,ime)
+   implicit none
+   real(dp), intent(in) :: qV(1:4,1:4)
+   integer, intent(in) :: idV(1:4)
+   integer, intent(in) :: idA(1:4)
+   complex(dp), intent(in) :: currentV(1:4,1:4) ! Lorentz, current
+   complex(dp), intent(in) :: currentA(1:4,1:4) ! Lorentz, current
+   complex(dp), intent(out) :: ime
+   complex(dp) :: ime_tmp(1:2)
+   complex(dp) :: currentH(1:4),qBack(1:4,1:3),qFront(1:4,1:3),cBack(1:4,1:3),cFront(1:4,1:3)
+   integer :: outTypeBack(1:2),outTypeFront(1:2),order(1:4),idBack(1:3),idFront(1:3)
+   real(dp) :: qH(1:4)
+
+   ime=czero
+   ime_tmp(:)=czero
+   qH(:)=0_dp
+   currentH(:)=czero ! This is just a dummy current
+
+   ! Try (W+W-)-H-(W+W-)
+   order(:)=Id_Order(4,idV,(/ Wp_,Wm_,Wp_,Wm_ /))
+   if(order(1).ne.0 .and. order(2).ne.0 .and. order(3).ne.0 .and. order(4).ne.0) then
+      outTypeBack(:)=(/Wp_,Wm_/);outTypeFront(:)=(/Wp_,Wm_/)
+
+      qH(:)=qV(:,order(3))+qV(:,order(4))
+      idBack(:)=(/Hig_,idV(order(1)),idV(order(2))/)
+      qBack(:,1)=qH(:)
+      qBack(:,2)=qV(:,order(1))
+      qBack(:,3)=qV(:,order(2))
+      cBack(:,1)=currentH(:)
+      cBack(:,2)=currentV(:,order(1))
+      cBack(:,3)=currentV(:,order(2))
+      idFront(:)=(/Hig_,idV(order(3)),idV(order(4))/)
+      qFront(:,1)=qH(:)
+      qFront(:,2)=qV(:,order(3))
+      qFront(:,3)=qV(:,order(4))
+      cFront(:,1)=currentH(:)
+      cFront(:,2)=currentV(:,order(3))
+      cFront(:,3)=currentV(:,order(4))
+      ime = ime + VVHVertex(qBack,cBack,idBack,outTypeBack)*VVHVertex(qFront,cFront,idFront,outTypeFront)*ScalarPropagator(Hig_,qH(:))
+
+      qH(:)=qV(:,order(3))+qV(:,order(2))
+      idBack(:)=(/Hig_,idV(order(1)),idV(order(4))/)
+      qBack(:,1)=qH(:)
+      qBack(:,2)=qV(:,order(1))
+      qBack(:,3)=qV(:,order(4))
+      cBack(:,1)=currentH(:)
+      cBack(:,2)=currentV(:,order(1))
+      cBack(:,3)=currentV(:,order(4))
+      idFront(:)=(/Hig_,idV(order(3)),idV(order(2))/)
+      qFront(:,1)=qH(:)
+      qFront(:,2)=qV(:,order(3))
+      qFront(:,3)=qV(:,order(2))
+      cFront(:,1)=currentH(:)
+      cFront(:,2)=currentV(:,order(3))
+      cFront(:,3)=currentV(:,order(2))
+      ime = ime + VVHVertex(qBack,cBack,idBack,outTypeBack)*VVHVertex(qFront,cFront,idFront,outTypeFront)*ScalarPropagator(Hig_,qH(:))
+   endif
+
+   ! Try (W+W-)-H-(ZZ)
+   order(:)=Id_Order(4,idV,(/ Wp_,Wm_,Z0_,Z0_ /))
+   if(order(1).ne.0 .and. order(2).ne.0 .and. order(3).ne.0 .and. order(4).ne.0) then
+      outTypeBack(:)=(/Wp_,Wm_/);outTypeFront(:)=(/Z0_,Z0_/)
+
+      qH(:)=qV(:,order(3))+qV(:,order(4))
+      idBack(:)=(/Hig_,idV(order(1)),idV(order(2))/)
+      qBack(:,1)=qH(:)
+      qBack(:,2)=qV(:,order(1))
+      qBack(:,3)=qV(:,order(2))
+      cBack(:,1)=currentH(:)
+      cBack(:,2)=currentV(:,order(1))
+      cBack(:,3)=currentV(:,order(2))
+      idFront(:)=(/Hig_,idV(order(3)),idV(order(4))/)
+      qFront(:,1)=qH(:)
+      qFront(:,2)=qV(:,order(3))
+      qFront(:,3)=qV(:,order(4))
+      cFront(:,1)=currentH(:)
+      cFront(:,2)=currentV(:,order(3))
+      cFront(:,3)=currentV(:,order(4))
+      ime_tmp(1) = VVHVertex(qBack,cBack,idBack,outTypeBack)
+      ime_tmp(2) = VVHVertex(qFront,cFront,idFront,outTypeFront)
+      if(includeGammaStar) then
+         if(idA(order(3)).eq.Pho_) then
+            ! g*Z
+            outTypeFront(:)=(/Pho_,Z0_/)
+            idFront(:)=(/Hig_,idA(order(3)),idV(order(4))/)
+            cFront(:,2)=currentA(:,order(3))
+            cFront(:,3)=currentV(:,order(4))
+            ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront)
+         endif
+
+         if(idA(order(4)).eq.Pho_) then
+            ! Zg*
+            outTypeFront(:)=(/Z0_,Pho_/)
+            idFront(:)=(/Hig_,idV(order(3)),idA(order(4))/)
+            cFront(:,2)=currentV(:,order(3))
+            cFront(:,3)=currentA(:,order(4))
+            ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront)
+         endif
+
+         if(idA(order(3)).eq.Pho_ .and. idA(order(4)).eq.Pho_) then
+            ! g*g*
+            outTypeFront(:)=(/Pho_,Pho_/)
+            idFront(:)=(/Hig_,idA(order(3)),idA(order(4))/)
+            cFront(:,2)=currentA(:,order(3))
+            cFront(:,3)=currentA(:,order(4))
+            ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront)
+         endif
+
+         if(idA(order(3)).eq.Pho_ .or. idA(order(4)).eq.Pho_) then
+            ! Return back
+            outTypeFront(:)=(/Z0_,Z0_/)
+            idFront(:)=(/Hig_,idV(order(3)),idV(order(4))/)
+            cFront(:,2)=currentV(:,order(3))
+            cFront(:,3)=currentV(:,order(4))
+         endif
+      endif
+      ime = ime + ime_tmp(1)*ime_tmp(2)*ScalarPropagator(Hig_,qH(:))
+      ime_tmp(:)=czero
+   endif
+
+   ! Try (ZZ)-H-(ZZ)
+   order(:)=Id_Order(4,idV,(/ Z0_,Z0_,Z0_,Z0_ /))
+   if(order(1).ne.0 .and. order(2).ne.0 .and. order(3).ne.0 .and. order(4).ne.0) then
+      outTypeBack(:)=(/Z0_,Z0_/);outTypeFront(:)=(/Z0_,Z0_/)
+
+      qH(:)=qV(:,order(3))+qV(:,order(4))
+      idBack(:)=(/Hig_,idV(order(1)),idV(order(2))/)
+      qBack(:,1)=qH(:)
+      qBack(:,2)=qV(:,order(1))
+      qBack(:,3)=qV(:,order(2))
+      cBack(:,1)=currentH(:)
+      cBack(:,2)=currentV(:,order(1))
+      cBack(:,3)=currentV(:,order(2))
+      idFront(:)=(/Hig_,idV(order(3)),idV(order(4))/)
+      qFront(:,1)=qH(:)
+      qFront(:,2)=qV(:,order(3))
+      qFront(:,3)=qV(:,order(4))
+      cFront(:,1)=currentH(:)
+      cFront(:,2)=currentV(:,order(3))
+      cFront(:,3)=currentV(:,order(4))
+      ime_tmp(1) = VVHVertex(qBack,cBack,idBack,outTypeBack)
+      ime_tmp(2) = VVHVertex(qFront,cFront,idFront,outTypeFront)
+      if(includeGammaStar) then
+         if(idA(order(1)).eq.Pho_) then
+            ! g*Z
+            outTypeBack(:)=(/Pho_,Z0_/)
+            idBack(:)=(/Hig_,idA(order(1)),idV(order(2))/)
+            cBack(:,2)=currentA(:,order(1))
+            cBack(:,3)=currentV(:,order(2))
+            ime_tmp(1) = ime_tmp(1) + VVHVertex(qBack,cBack,idBack,outTypeBack)
+         endif
+
+         if(idA(order(2)).eq.Pho_) then
+            ! g*Z
+            outTypeBack(:)=(/Z0_,Pho_/)
+            idBack(:)=(/Hig_,idV(order(1)),idA(order(2))/)
+            cBack(:,2)=currentV(:,order(1))
+            cBack(:,3)=currentA(:,order(2))
+            ime_tmp(1) = ime_tmp(1) + VVHVertex(qBack,cBack,idBack,outTypeBack)
+         endif
+
+         if(idA(order(1)).eq.Pho_ .and. idA(order(2)).eq.Pho_) then
+            ! g*g*
+            outTypeBack(:)=(/Pho_,Pho_/)
+            idBack(:)=(/Hig_,idA(order(1)),idA(order(2))/)
+            cBack(:,2)=currentA(:,order(1))
+            cBack(:,3)=currentA(:,order(2))
+            ime_tmp(1) = ime_tmp(1) + VVHVertex(qBack,cBack,idBack,outTypeBack)
+         endif
+
+         if(idA(order(1)).eq.Pho_ .or. idA(order(2)).eq.Pho_) then
+            ! Return back
+            outTypeBack(:)=(/Z0_,Z0_/)
+            idBack(:)=(/Hig_,idV(order(1)),idV(order(2))/)
+            cBack(:,2)=currentV(:,order(1))
+            cBack(:,3)=currentV(:,order(2))
+         endif
+
+         if(idA(order(3)).eq.Pho_) then
+            ! g*Z
+            outTypeFront(:)=(/Pho_,Z0_/)
+            idFront(:)=(/Hig_,idA(order(3)),idV(order(4))/)
+            cFront(:,2)=currentA(:,order(3))
+            cFront(:,3)=currentV(:,order(4))
+            ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront)
+         endif
+
+         if(idA(order(4)).eq.Pho_) then
+            ! Zg*
+            outTypeFront(:)=(/Z0_,Pho_/)
+            idFront(:)=(/Hig_,idV(order(3)),idA(order(4))/)
+            cFront(:,2)=currentV(:,order(3))
+            cFront(:,3)=currentA(:,order(4))
+            ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront)
+         endif
+
+         if(idA(order(3)).eq.Pho_ .and. idA(order(4)).eq.Pho_) then
+            ! g*g*
+            outTypeFront(:)=(/Pho_,Pho_/)
+            idFront(:)=(/Hig_,idA(order(3)),idA(order(4))/)
+            cFront(:,2)=currentA(:,order(3))
+            cFront(:,3)=currentA(:,order(4))
+            ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront)
+         endif
+
+         if(idA(order(3)).eq.Pho_ .or. idA(order(4)).eq.Pho_) then
+            ! Return back
+            outTypeFront(:)=(/Z0_,Z0_/)
+            idFront(:)=(/Hig_,idV(order(3)),idV(order(4))/)
+            cFront(:,2)=currentV(:,order(3))
+            cFront(:,3)=currentV(:,order(4))
+         endif
+      endif
+      ime = ime + ime_tmp(1)*ime_tmp(2)*ScalarPropagator(Hig_,qH(:))
+      ime_tmp(:)=czero
+
+      qH(:)=qV(:,order(2))+qV(:,order(4))
+      idBack(:)=(/Hig_,idV(order(1)),idV(order(3))/)
+      qBack(:,1)=qH(:)
+      qBack(:,2)=qV(:,order(1))
+      qBack(:,3)=qV(:,order(3))
+      cBack(:,1)=currentH(:)
+      cBack(:,2)=currentV(:,order(1))
+      cBack(:,3)=currentV(:,order(3))
+      idFront(:)=(/Hig_,idV(order(2)),idV(order(4))/)
+      qFront(:,1)=qH(:)
+      qFront(:,2)=qV(:,order(2))
+      qFront(:,3)=qV(:,order(4))
+      cFront(:,1)=currentH(:)
+      cFront(:,2)=currentV(:,order(2))
+      cFront(:,3)=currentV(:,order(4))
+      ime_tmp(1) = VVHVertex(qBack,cBack,idBack,outTypeBack)
+      ime_tmp(2) = VVHVertex(qFront,cFront,idFront,outTypeFront)
+      if(includeGammaStar) then
+         if(idA(order(1)).eq.Pho_) then
+            ! g*Z
+            outTypeBack(:)=(/Pho_,Z0_/)
+            idBack(:)=(/Hig_,idA(order(1)),idV(order(3))/)
+            cBack(:,2)=currentA(:,order(1))
+            cBack(:,3)=currentV(:,order(3))
+            ime_tmp(1) = ime_tmp(1) + VVHVertex(qBack,cBack,idBack,outTypeBack)
+         endif
+
+         if(idA(order(3)).eq.Pho_) then
+            ! g*Z
+            outTypeBack(:)=(/Z0_,Pho_/)
+            idBack(:)=(/Hig_,idV(order(1)),idA(order(3))/)
+            cBack(:,2)=currentV(:,order(1))
+            cBack(:,3)=currentA(:,order(3))
+            ime_tmp(1) = ime_tmp(1) + VVHVertex(qBack,cBack,idBack,outTypeBack)
+         endif
+
+         if(idA(order(1)).eq.Pho_ .and. idA(order(3)).eq.Pho_) then
+            ! g*g*
+            outTypeBack(:)=(/Pho_,Pho_/)
+            idBack(:)=(/Hig_,idA(order(1)),idA(order(3))/)
+            cBack(:,2)=currentA(:,order(1))
+            cBack(:,3)=currentA(:,order(3))
+            ime_tmp(1) = ime_tmp(1) + VVHVertex(qBack,cBack,idBack,outTypeBack)
+         endif
+
+         if(idA(order(1)).eq.Pho_ .or. idA(order(3)).eq.Pho_) then
+            ! Return back
+            outTypeBack(:)=(/Z0_,Z0_/)
+            idBack(:)=(/Hig_,idV(order(1)),idV(order(3))/)
+            cBack(:,2)=currentV(:,order(1))
+            cBack(:,3)=currentV(:,order(3))
+         endif
+
+         if(idA(order(2)).eq.Pho_) then
+            ! g*Z
+            outTypeFront(:)=(/Pho_,Z0_/)
+            idFront(:)=(/Hig_,idA(order(2)),idV(order(4))/)
+            cFront(:,2)=currentA(:,order(2))
+            cFront(:,3)=currentV(:,order(4))
+            ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront)
+         endif
+
+         if(idA(order(4)).eq.Pho_) then
+            ! Zg*
+            outTypeFront(:)=(/Z0_,Pho_/)
+            idFront(:)=(/Hig_,idV(order(2)),idA(order(4))/)
+            cFront(:,2)=currentV(:,order(2))
+            cFront(:,3)=currentA(:,order(4))
+            ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront)
+         endif
+
+         if(idA(order(2)).eq.Pho_ .and. idA(order(4)).eq.Pho_) then
+            ! g*g*
+            outTypeFront(:)=(/Pho_,Pho_/)
+            idFront(:)=(/Hig_,idA(order(2)),idA(order(4))/)
+            cFront(:,2)=currentA(:,order(2))
+            cFront(:,3)=currentA(:,order(4))
+            ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront)
+         endif
+
+         if(idA(order(2)).eq.Pho_ .or. idA(order(4)).eq.Pho_) then
+            ! Return back
+            outTypeFront(:)=(/Z0_,Z0_/)
+            idFront(:)=(/Hig_,idV(order(2)),idV(order(4))/)
+            cFront(:,2)=currentV(:,order(2))
+            cFront(:,3)=currentV(:,order(4))
+         endif
+      endif
+      ime = ime + ime_tmp(1)*ime_tmp(2)*ScalarPropagator(Hig_,qH(:))
+      ime_tmp(:)=czero
+
+      qH(:)=qV(:,order(3))+qV(:,order(2))
+      idBack(:)=(/Hig_,idV(order(1)),idV(order(4))/)
+      qBack(:,1)=qH(:)
+      qBack(:,2)=qV(:,order(1))
+      qBack(:,3)=qV(:,order(4))
+      cBack(:,1)=currentH(:)
+      cBack(:,2)=currentV(:,order(1))
+      cBack(:,3)=currentV(:,order(4))
+      idFront(:)=(/Hig_,idV(order(3)),idV(order(2))/)
+      qFront(:,1)=qH(:)
+      qFront(:,2)=qV(:,order(3))
+      qFront(:,3)=qV(:,order(2))
+      cFront(:,1)=currentH(:)
+      cFront(:,2)=currentV(:,order(3))
+      cFront(:,3)=currentV(:,order(2))
+      ime_tmp(1) = VVHVertex(qBack,cBack,idBack,outTypeBack)
+      ime_tmp(2) = VVHVertex(qFront,cFront,idFront,outTypeFront)
+      if(includeGammaStar) then
+         if(idA(order(1)).eq.Pho_) then
+            ! g*Z
+            outTypeBack(:)=(/Pho_,Z0_/)
+            idBack(:)=(/Hig_,idA(order(1)),idV(order(4))/)
+            cBack(:,2)=currentA(:,order(1))
+            cBack(:,3)=currentV(:,order(4))
+            ime_tmp(1) = ime_tmp(1) + VVHVertex(qBack,cBack,idBack,outTypeBack)
+         endif
+
+         if(idA(order(4)).eq.Pho_) then
+            ! g*Z
+            outTypeBack(:)=(/Z0_,Pho_/)
+            idBack(:)=(/Hig_,idV(order(1)),idA(order(4))/)
+            cBack(:,2)=currentV(:,order(1))
+            cBack(:,3)=currentA(:,order(4))
+            ime_tmp(1) = ime_tmp(1) + VVHVertex(qBack,cBack,idBack,outTypeBack)
+         endif
+
+         if(idA(order(1)).eq.Pho_ .and. idA(order(4)).eq.Pho_) then
+            ! g*g*
+            outTypeBack(:)=(/Pho_,Pho_/)
+            idBack(:)=(/Hig_,idA(order(1)),idA(order(4))/)
+            cBack(:,2)=currentA(:,order(1))
+            cBack(:,3)=currentA(:,order(4))
+            ime_tmp(1) = ime_tmp(1) + VVHVertex(qBack,cBack,idBack,outTypeBack)
+         endif
+
+         if(idA(order(1)).eq.Pho_ .or. idA(order(4)).eq.Pho_) then
+            ! Return back
+            outTypeBack(:)=(/Z0_,Z0_/)
+            idBack(:)=(/Hig_,idV(order(1)),idV(order(4))/)
+            cBack(:,2)=currentV(:,order(1))
+            cBack(:,3)=currentV(:,order(4))
+         endif
+
+         if(idA(order(3)).eq.Pho_) then
+            ! g*Z
+            outTypeFront(:)=(/Pho_,Z0_/)
+            idFront(:)=(/Hig_,idA(order(3)),idV(order(2))/)
+            cFront(:,2)=currentA(:,order(3))
+            cFront(:,3)=currentV(:,order(2))
+            ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront)
+         endif
+
+         if(idA(order(2)).eq.Pho_) then
+            ! Zg*
+            outTypeFront(:)=(/Z0_,Pho_/)
+            idFront(:)=(/Hig_,idV(order(3)),idA(order(2))/)
+            cFront(:,2)=currentV(:,order(3))
+            cFront(:,3)=currentA(:,order(2))
+            ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront)
+         endif
+
+         if(idA(order(3)).eq.Pho_ .and. idA(order(2)).eq.Pho_) then
+            ! g*g*
+            outTypeFront(:)=(/Pho_,Pho_/)
+            idFront(:)=(/Hig_,idA(order(3)),idA(order(2))/)
+            cFront(:,2)=currentA(:,order(3))
+            cFront(:,3)=currentA(:,order(2))
+            ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront)
+         endif
+
+         if(idA(order(3)).eq.Pho_ .or. idA(order(2)).eq.Pho_) then
+            ! Return back
+            outTypeFront(:)=(/Z0_,Z0_/)
+            idFront(:)=(/Hig_,idV(order(3)),idV(order(2))/)
+            cFront(:,2)=currentV(:,order(3))
+            cFront(:,3)=currentV(:,order(2))
+         endif
+      endif
+      ime = ime + ime_tmp(1)*ime_tmp(2)*ScalarPropagator(Hig_,qH(:))
+      ime_tmp(:)=czero
+   endif
+
+   return
+end subroutine amp_VVHVV
+
 subroutine amp_WWZZ(current,idV,ime)
    implicit none
    complex(dp), intent(in) :: current(1:4,1:4) ! Lorentz, current
@@ -2233,7 +2639,7 @@ end subroutine amp_tchannelV_VffVfpfp
 
 
 
-subroutine getSwapCombinations(nhel,p,id,hel,combination,combination_p,ncomb)
+subroutine getSwapCombinations(p,id,hel,combination,combination_p,nhel,ncomb)
    use ModParameters
    use ModMisc
    implicit none
@@ -2278,10 +2684,10 @@ subroutine getSwapCombinations(nhel,p,id,hel,combination,combination_p,ncomb)
    enddo
    enddo
    ! Count the combinations first
-   ncomb=1
+   ncomb=1 ! We already have the initial configuration as a valid combination
    do ih=1,nhel
       do ihtmp=ih,nhel ! ihtmp=ih still would not check whether the starting combination makes sense
-         if(hel(ih).eq.hel(ihtmp) .and. ih.ne.ihtmp) then
+         if(hel(ih).eq.hel(ihtmp) .and. ih.ne.ihtmp) then ! ih.ne.ihtmp is a workaround for earlier Fortran compilers that give an error for "do ihtmp=4,3"
             idV_tmp=CoupledVertex((/combination_first(1,ih),combination_first(2,ihtmp)/),hel(ih))
             if(idV_tmp.eq.Not_a_particle_) idV_tmp = CoupledVertex_FlavorViolating((/combination_first(1,ih),combination_first(2,ihtmp)/),hel(ih))
             if(idV_tmp.ne.Not_a_particle_) ncomb = ncomb+1
@@ -2310,8 +2716,8 @@ subroutine getSwapCombinations(nhel,p,id,hel,combination,combination_p,ncomb)
             if(idV_tmp.eq.Not_a_particle_) idV_tmp = CoupledVertex_FlavorViolating((/combination_first(1,ih),combination_first(2,ihtmp)/),hel(ih))
             if(idV_tmp.ne.Not_a_particle_) then
                niter = niter+1
-               call swapi(combination(2,ih,niter),combination(2,ihtmp,niter))
-               do mu=1,4
+               call swapi(combination(2,ih,niter),combination(2,ihtmp,niter)) ! Swap ids
+               do mu=1,4 ! Swap momenta
                   tmpP = combination_p(mu,2,ih,niter)
                   combination_p(mu,2,ih,niter)=combination_p(mu,2,ihtmp,niter)
                   combination_p(mu,2,ihtmp,niter)=tmpP
@@ -2321,6 +2727,7 @@ subroutine getSwapCombinations(nhel,p,id,hel,combination,combination_p,ncomb)
       enddo
    enddo
    deallocate (combination_first) ! No longer needed
+   ! Notice that in the end, hel(:) is the same between the different combinations!
 
    if(ncomb .ne. niter) then
       print *,"getSwapCombinations :: ncomb .ne. niter!"
@@ -2330,13 +2737,15 @@ subroutine getSwapCombinations(nhel,p,id,hel,combination,combination_p,ncomb)
 end subroutine getSwapCombinations
 
 
-subroutine getSwapCurrents_VA(p,id,hel,isWBF , ncomb , current,currentA,Ub,V,qV,idV,idA,combination_id,combination_p)
+subroutine getSwapCurrents_VA(p,id,hel,isWBF , ncomb,combination_id,combination_p , current,currentA,Ub,V,qV,idV,idA)
    implicit none
    real(dp), intent(in) :: p(1:4,1:8)
    integer, intent(in) :: id(1:8)
    integer, intent(in) :: hel(1:4)
    logical, intent(in) :: isWBF
    integer, intent(out) :: ncomb
+   integer, dimension (:,:,:), allocatable :: combination_id
+   real(dp), dimension (:,:,:,:), allocatable :: combination_p
    complex(dp), dimension (:,:,:), allocatable :: current ! (1:4,1:4,1:ncomb) Lorentz, current
    complex(dp), dimension (:,:,:), allocatable :: currentA ! (1:4,1:4,1:ncomb) Lorentz, current
    complex(dp), dimension (:,:,:), allocatable :: Ub ! (1:4,1:4,1:ncomb) Lorentz, current
@@ -2344,55 +2753,138 @@ subroutine getSwapCurrents_VA(p,id,hel,isWBF , ncomb , current,currentA,Ub,V,qV,
    real(dp), dimension (:,:,:), allocatable :: qV ! (1:4,1:4,1:ncomb)
    integer, dimension (:,:,:), allocatable :: idV ! (1:4,1:ncomb)
    integer, dimension (:,:,:), allocatable :: idA ! (1:4,1:ncomb)
-   integer, dimension (:,:,:), allocatable :: combination_id
-   real(dp), dimension (:,:,:,:), allocatable :: combination_p
-   real(dp), intent(in) :: pout(1:4,1:2,1:4)
-   integer, intent(in) :: idout(1:2,1:4)
-   integer :: c
+   real(dp) :: pout(1:4,1:2,1:4)
+   integer :: idout(1:2,1:4)
+   integer :: c, nhel
 
    if(isWBF) then
       idout(1,1)=-id(1)
       idout(2,1)=id(7)
       idout(1,2)=-id(2)
       idout(2,2)=id(8)
-      pout(1,1)=-p(1)
-      pout(2,1)=p(7)
-      pout(1,2)=-p(2)
-      pout(2,2)=p(8)
+      pout(:,1,1)=-p(:,1)
+      pout(:,2,1)=p(:,7)
+      pout(:,1,2)=-p(:,2)
+      pout(:,2,2)=p(:,8)
    else
       idout(1,1)=-id(1)
       idout(2,1)=-id(2)
       idout(1,2)=id(7)
       idout(2,2)=id(8)
-      pout(1,1)=-p(1)
-      pout(2,1)=-p(2)
-      pout(1,2)=p(7)
-      pout(2,2)=p(8)
+      pout(:,1,1)=-p(:,1)
+      pout(:,2,1)=-p(:,2)
+      pout(:,1,2)=p(:,7)
+      pout(:,2,2)=p(:,8)
    endif
    idout(1,3)=id(3)
    idout(2,3)=id(4)
    idout(1,4)=id(5)
    idout(2,4)=id(6)
-   pout(1,3)=p(3)
-   pout(2,3)=p(4)
-   pout(1,4)=p(5)
-   pout(2,4)=p(6)
+   pout(:,1,3)=p(:,3)
+   pout(:,2,3)=p(:,4)
+   pout(:,1,4)=p(:,5)
+   pout(:,2,4)=p(:,6)
 
-   call getSwapCombinations(4,pout,idout,hel,combination_id,combination_p,ncomb)
-   allocate(current(4,4,ncomb))
-   allocate(currentA(4,4,ncomb))
-   allocate(Ub(4,4,ncomb))
-   allocate(V(4,4,ncomb))
-   allocate(qV(4,4,ncomb))
-   allocate(idV(4,ncomb))
-   allocate(idA(4,ncomb))
+   call getSwapCombinations(pout,idout,hel,combination_id,combination_p,nhel,ncomb)
+   if(nhel.ne.4) then
+      print *,"getSwapCurrents_VA: nhel==",nhel
+   else
+      allocate(current(4,nhel,ncomb))
+      allocate(currentA(4,nhel,ncomb))
+      allocate(Ub(4,nhel,ncomb))
+      allocate(V(4,nhel,ncomb))
+      allocate(qV(4,nhel,ncomb))
+      allocate(idV(nhel,ncomb))
+      allocate(idA(nhel,ncomb))
 
-   do c=1,ncomb
-      getCurrents_VA(pout,idout,hel,current(:,:,c),currentA(:,:,c),Ub(:,:,c),V(:,:,c),qV(:,:,c),idV(:,c),idA(:,c))
-   enddo
+      do c=1,ncomb
+         getCurrents_VA(combination_p(:,:,:,c),combination_id(:,:,c),hel,current(:,:,c),currentA(:,:,c),Ub(:,:,c),V(:,:,c),qV(:,:,c),idV(:,c),idA(:,c))
+      enddo
+   endif
 
    return
 end subroutine getSwapCurrents_VA
+
+
+subroutine getSignalContributions(ncomb, combination_id, combination_p, hel, currentV, currentA, Ub, V, qV, idV, idA, ime)
+   implicit none
+   integer, intent(in) :: ncomb
+   integer, intent(in) :: combination_id(1:2,1:4,1:ncomb)
+   real(dp), intent(in) :: combination_p(1:4,1:2,1:4,1:ncomb)
+   integer, intent(in) :: hel(1:4) ! Current
+   complex(dp), intent(in) :: currentV(1:4,1:4,1:ncomb) ! Lorentz, current
+   complex(dp), intent(in) :: currentA(1:4,1:4,1:ncomb) ! Lorentz, current
+   complex(dp), intent(in) :: Ub(1:4,1:4,1:ncomb) ! Lorentz, current
+   complex(dp), intent(in) :: V(1:4,1:4,1:ncomb) ! Lorentz, current
+   real(dp), intent(in) :: qV(1:4,1:4,1:ncomb)
+   integer, intent(in) :: idV(1:4,1:ncomb)
+   integer, intent(in) :: idA(1:4,1:ncomb)
+   complex(dp), intent(out) :: ime(1:ncomb)
+   integer :: id_VAmix(1:4)
+   complex(dp) :: current_VAmix(1:4,1:4)
+   complex(dp) :: ime_vvhvv
+   integer :: c,hh
+
+   ime(:)=czero
+   if(.not.doSignal) return
+   if(ncomb.lt.1) return
+   do c=1,ncomb
+      call amp_VVHVV(qV(:,:,c),idV(:,c),idA(:,c),currentV(:,:,c),currentA(:,:,c),ime_vvhvv)
+      ime(c) = ime_vvhvv
+   enddo
+
+   return
+end subroutine getSignalContributions
+
+subroutine getBackgroundContributions(ncomb, combination_id, combination_p, hel, currentV, currentA, Ub, V, qV, idV, idA, ime)
+   implicit none
+   integer, intent(in) :: ncomb
+   integer, intent(in) :: combination_id(1:2,1:4,1:ncomb)
+   real(dp), intent(in) :: combination_p(1:4,1:2,1:4,1:ncomb)
+   integer, intent(in) :: hel(1:4) ! Current
+   complex(dp), intent(in) :: currentV(1:4,1:4,1:ncomb) ! Lorentz, current
+   complex(dp), intent(in) :: currentA(1:4,1:4,1:ncomb) ! Lorentz, current
+   complex(dp), intent(in) :: Ub(1:4,1:4,1:ncomb) ! Lorentz, current
+   complex(dp), intent(in) :: V(1:4,1:4,1:ncomb) ! Lorentz, current
+   real(dp), intent(in) :: qV(1:4,1:4,1:ncomb)
+   integer, intent(in) :: idV(1:4,1:ncomb)
+   integer, intent(in) :: idA(1:4,1:ncomb)
+   complex(dp), intent(out) :: ime(1:ncomb)
+   integer :: id_VAmix(1:4)
+   complex(dp) :: current_VAmix(1:4,1:4)
+   complex(dp) :: ime_wwzz,ime_wwaa_4to4,ime_wwza_4to4,ime_wwza_4to4_tmp,ime_wwww,ime_ww_v_4f,ime_tchannelV_VffVfpfp
+   integer :: c,hh
+
+   ime(:)=czero
+   if(.not.doBkg) return
+   if(ncomb.lt.1) return
+   do c=1,ncomb
+      call amp_WWZZ(currentV(:,:,c),idV(:,c),ime_wwzz)
+      call amp_WWAA_4to4(currentA(:,:,c),idA(:,c),ime_wwaa_4to4)
+
+      ime_wwza_4to4=czero
+      do hh=1,4
+         if(idV(hh,c).eq.Z0_ .and. idA(hh,c).eq.Pho_) then ! Helicity index has to refer to the same array member in idV and idA
+            id_VAmix(:)=idV(:,c)
+            id_VAmix(hh) = idA(hh,c)
+            current_VAmix(:,:) = currentV(:,:,c)
+            current_VAmix(:,hh) = currentA(:,hh,c)
+            call amp_WWZA_4to4(current_VAmix(:,:),id_VAmix(:),ime_wwaa_4to4_tmp)
+            ime_wwaa_4to4 = ime_wwaa_4to4 + ime_wwaa_4to4_tmp
+         endif
+      enddo
+
+      call amp_WWWW(currentV(:,:,c),qV(:,:,c),idV(:,c),ime_wwww)
+      call amp_WW_V_4f(combination_p(:,:,:,c),combination_id(:,:,c),hel,Ub(:,:,c),V(:,:,c),currentV(:,:,c),ime_ww_v_4f)
+      call amp_tchannelV_VffVfpfp(combination_p(:,:,:,c),combination_id(:,:,c),hel,Ub(:,:,c),V(:,:,c),currentV(:,:,c),ime_tchannelV_VffVfpfp)
+
+      ime(c) = ime_wwzz + ime_wwaa_4to4 + ime_wwza_4to4 + ime_wwww + ime_ww_v_4f + ime_tchannelV_VffVfpfp
+   enddo
+
+   return
+
+end subroutine getBackgroundContributions
+
 
 subroutine DeallocateAll(current,currentA,Ub,V,qV,idV,idA,combination_id,combination_p)
    implicit none
@@ -2416,6 +2908,6 @@ subroutine DeallocateAll(current,currentA,Ub,V,qV,idV,idA,combination_id,combina
    deallocate(combination_id)
    deallocate(combination_p)
    return
-end subroutine deallocateAll
+end subroutine DeallocateAll
 
 end module ModVVHOffshell
