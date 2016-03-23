@@ -91,6 +91,7 @@ MainObj = $(ObjectDir)/mod_Phasespace.o \
 # amplitude dependencies
 AmpDep = mod_Misc.F90 \
           mod_Parameters.F90 \
+          mod_VVHOffshell.F90 \
           mod_TopDecay.F90 \
           mod_Graviton.F90 \
           mod_Higgs.F90 \
@@ -105,6 +106,7 @@ AmpDep = mod_Misc.F90 \
 # amplitude objects
 AmpObj =  $(ObjectDir)/mod_Misc.o \
           $(ObjectDir)/mod_Parameters.o \
+          $(ObjectDir)/mod_VVHOffshell.o \
           $(ObjectDir)/mod_TopDecay.o \
           $(ObjectDir)/mod_Graviton.o \
           $(ObjectDir)/mod_Higgs.o \
@@ -114,6 +116,7 @@ AmpObj =  $(ObjectDir)/mod_Misc.o \
           $(ObjectDir)/mod_VHiggs.o \
           $(ObjectDir)/mod_TTBHiggs.o \
           $(ObjectDir)/mod_THiggs.o
+
 
 VegasDep = $(VegasDir)/vegas.f
 VegasObj = $(ObjectDir)/vegas.o

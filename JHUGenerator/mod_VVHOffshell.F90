@@ -21,6 +21,27 @@ private
    logical, parameter :: doSignal=.true.
    logical, parameter :: doBkg=.true.
 
+   type :: VACurrent
+      ! Inputs to store
+      real(dp) :: p(1:4,1:2)
+      integer :: id(1:2)
+      integer :: hel
+      ! Outputs to use further
+      integer :: idVertex
+      real(dp) :: pVertex(1:4)
+      complex(dp) :: Ub(1:4)
+      complex(dp) :: V(1:4)
+      complex(dp) :: current(1:4)
+      complex(dp) :: prop ! ScalarPropagator
+      complex(dp) :: propcurrent(1:4) ! VertexPropagator
+      contains
+         procedure :: init_VACurrent
+   end type
+
+   type :: Single4VDiagram
+      type(VACurrent) :: VCurrent(1:4)
+      type(VACurrent) :: ACurrent(1:4)
+   end type
 
 !----- List of  subroutines
    public :: amp_WWZZ, amp_WWAA_4to4, amp_WWZA_4to4, amp_WWWW, amp_WW_V_4f, amp_tchannelV_VffVfpfp, getSwapCombinations, getSwapCurrents_VA, DeallocateAll
@@ -28,6 +49,22 @@ private
 
 contains
 
+subroutine init_VACurrent(cur, p, id, hel, useA)
+class(VACurrent) :: cur
+real(dp) :: p(1:4,1:2)
+integer :: id(1:2)
+integer :: hel
+logical :: useA
+
+   cur%p=p
+   cur%id=id
+   cur%hel=hel
+   cur%pVertex(1:4)=p(1:4,1)+p(1:4,2)
+   cur%current = Vcurrent(p,id,hel,cur%idVertex,useAcoupl=useA,Ub_out=cur%Ub,V_out=cur%V)
+   cur%propcurrent = VectorPropagator(cur%idVertex,cur%pVertex,cur%current,scprop=cur%prop)
+
+return
+end subroutine init_VACurrent
 
 
 
@@ -553,9 +590,9 @@ function dp_gmunu_ewk(p,current) ! (p+-p-)_mu g_ab + (p- -q)_a g_mub + (q-p+)_b 
    complex(dp) :: dp_gmunu_ewk
 
    q(:) = -p(:,1)-p(:,2)
-   dpm(:) = dcmplx(p(:,2)-p(:,3))
-   dmq(:) = dcmplx(-q(:)+p(:,3))
-   dqp(:) = dcmplx(q(:)-p(:,2))
+   dpm(:) = dcmplx(p(:,1)-p(:,2))
+   dmq(:) = dcmplx(-q(:)+p(:,2))
+   dqp(:) = dcmplx(q(:)-p(:,1))
 
    dp_gmunu_ewk = (dpm(:).dot.current(:,1))*(current(:,2).dot.current(:,3)) &
                 + (dmq(:).dot.current(:,2))*(current(:,3).dot.current(:,1)) &
@@ -1687,17 +1724,21 @@ function ScalarPropagator(idV,p,cmasssq)
 end function ScalarPropagator
 
 
-function VectorPropagator(idV,p,current)
+function VectorPropagator(idV,p,current,scprop)
    use ModMisc
    implicit none
    integer, intent(in) :: idV
    real(dp), intent(in) :: p(1:4)
    complex(dp), intent(in) :: current(1:4)
+   complex(dp), optional :: scprop
    complex(dp) :: VectorPropagator(1:4)
    complex(dp) :: prefactor
 
    VectorPropagator(:) = czero
    prefactor = ScalarPropagator(idV,p)
+   if(present(scprop)) then
+      scprop = prefactor
+   endif
 
    if(idV .eq. Wm_ .or. idV.eq.Wp_ .or. idV .eq. Z0_) then
       VectorPropagator(:) = prefactor*(current(:)-p(:)*((cmplx(p(:),kind=dp)).dot.current(:))/(p(:).dot.p(:)))
