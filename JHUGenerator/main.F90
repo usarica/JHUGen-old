@@ -2,12 +2,13 @@
 !                                     Phys.Rev. D86 (2012) 095031; arXiv:1208.4018 [hep-ph],
 !                                 and Phys.Rev. D89 (2014) 035007; arXiv:1309.4819 [hep-ph].
 PROGRAM JHUGenerator
-use ModParameters
-use ModKinematics
-use ModCrossSection
 #if compiler==1
 use ifport
 #endif
+use ModCrossSection
+use ModKinematics
+use ModParameters
+use ModPMZZ
 implicit none
 real(8) :: VG_Result,VG_Error
 
@@ -18,13 +19,13 @@ real(8) :: VG_Result,VG_Error
    call InitParameters()
    call InitProcess()
    call InitVegas()
-   call InitRandomSeed(TheSeeds)
+   call InitRandomSeed()
    call OpenFiles()
    call PrintLogo(io_stdout)
    call PrintLogo(io_LogFile)
    call WriteParameters(io_stdout)
    call WriteParameters(io_LogFile)
-   if ( .not. ReadLHEFile .and. .not. ConvertLHEFile .and. .not.((Process.eq.60 .or. Process.eq.61) .and. unweighted) ) then
+   if ( .not. ReadLHEFile .and. .not. ConvertLHEFile .and. .not.((Process.le.2 .or. Process.eq.60 .or. Process.eq.61) .and. unweighted) ) then
       call InitOutput(1d0, 1d14)   !for VBF/HJJ the cross section is calculated, so use that in the <init> block
    endif
    write(io_stdout,*) " Running"
@@ -32,10 +33,10 @@ real(8) :: VG_Result,VG_Error
         call StartConvertLHE(VG_Result,VG_Error)
    elseif( ReadLHEFile ) then
         call StartReadLHE_NEW(VG_Result,VG_Error)
-   elseif( CalcPMZZ ) then
-        call GetMZZdistribution()
+   elseif( DoPrintPMZZ ) then
+        call PrintMZZdistribution()
    else
-        if( Process.eq.80 .or. Process.eq.60 .or. Process.eq.61 .or. Process.eq.66 .or. Process.eq.90 .or. &
+        if( Process.eq.0 .or. Process.eq.1 .or. Process.eq.2 .or. Process.eq.80 .or. Process.eq.60 .or. Process.eq.61 .or. Process.eq.66 .or. Process.eq.90 .or. &
             Process.eq.110 .or. Process.eq.111 .or. Process.eq.112 .or. Process.eq.113 ) then
            call StartVegas_NEW(VG_Result,VG_Error)
         else
@@ -213,6 +214,7 @@ subroutine InitProcessScaleSchemes() ! If schemes are set to default, reset to t
          )                     &
       ) call Error("Invalid scheme for the H+0J processes. Choose a different renormalization or factorization scheme.")
 
+
    return
 end subroutine
 
@@ -224,11 +226,25 @@ use ModKinematics
 use ModMisc
 implicit none
 character :: arg*(500)
-integer :: NumArgs,NArg,OffShell_XVV,iargument,CountArg,iinterf
+integer :: NumArgs,NArg
+logical :: help, success, SetLastArgument, interfSet
+logical :: SetRenScheme, SetMuRenMultiplier, SetFacScheme, SetMuFacMultiplier
+logical :: SetAnomalousSpin0gg, Setghg2, SetAnomalousSpin0ZZ, Setghz1
+logical :: SetZgammacoupling, Setgammagammacoupling
+logical :: SetAnomalousSpin1qq, Setspin1qqleft, Setspin1qqright, SetAnomalousSpin1ZZ
+logical :: SetAnomalousSpin2gg, SetAnomalousSpin2qq, Setspin2qqleft, Setspin2qqright,SetAnomalousSpin2ZZ
+logical :: SetAnomalousHff, Setkappa
+
+   help = .false.
 
    Collider=1
    VegasIt1=-1
+#if useLHAPDF==1
+   LHAPDFString = ""
+   LHAPDFMember = 0
+#else
    PDFSet=1      ! 1: CTEQ6L1   2: MRSW with best fit, 2xx: MSTW with eigenvector set xx=01..40
+#endif
    VegasNc0=-1
    VegasNc1=-1
    VegasNc2=-1
@@ -249,31 +265,60 @@ integer :: NumArgs,NArg,OffShell_XVV,iargument,CountArg,iinterf
 ! !       DecayMode=10: W --> l nu_l (l=e,mu,tau)
 ! !       DecayMode=11: W --> anything
 
-   WidthScheme=0
+   WidthScheme=-1
+   WidthSchemeIn=-1
    TopDecays=-1
    TauDecays=-1
    Process = 0   ! select 0, 1 or 2 to represent the spin of the resonance
    Unweighted =.true.
-   OffShell_XVV=011! 000: X,V1,V2 on-shell; 010: X,V2 on-shell, V1 off-shell; and so on
+
+   ! Old OffXVV flag is disabled
+   OffShellReson=.true.
+   OffShellV1=.true.
+   OffShellV2=.true.
+
    LHEProdFile=""
    ReadLHEFile=.false.
    ConvertLHEFile=.false.
    ReadCSmax=.false.
-   CalcPMZZ = .false.
+   ReadPMZZ = .false.
+   PMZZEvals=-1
+   DoPrintPMZZ = .false.
+   PrintPMZZIntervals = 20
    GenerateEvents=.false.
    RequestNLeptons = -1
    RequestOS=-1
    RequestOSSF=-1
    CountTauAsAny = .true.
-   LHAPDFString = ""
-   LHAPDFMember = 0
-   iinterf = -1
+   interfSet = .false.
    WriteFailedEvents=0
 
    MuFacMultiplier = 1d0
    MuRenMultiplier = 1d0
    FacScheme = kRenFacScheme_default
    RenScheme = kRenFacScheme_default
+   SetMuFacMultiplier = .false.
+   SetMuRenMultiplier = .false.
+   SetFacScheme = .false.
+   SetRenScheme = .false.
+
+   SetAnomalousSpin0gg=.false.
+   Setghg2=.false.
+   SetAnomalousSpin0ZZ=.false.
+   Setghz1=.false.
+   SetZgammacoupling=.false.
+   Setgammagammacoupling=.false.
+   SetAnomalousSpin1qq=.false.
+   Setspin1qqleft=.false.
+   Setspin1qqright=.false.
+   SetAnomalousSpin1ZZ=.false.
+   SetAnomalousSpin2gg=.false.
+   SetAnomalousSpin2qq=.false.
+   Setspin2qqleft=.false.
+   Setspin2qqright=.false.
+   SetAnomalousSpin2ZZ=.false.
+   SetAnomalousHff=.false.
+   Setkappa=.false.
 
    DataFile="./data/output"
 
@@ -284,179 +329,276 @@ integer :: NumArgs,NArg,OffShell_XVV,iargument,CountArg,iinterf
    NumArgs = COMMAND_ARGUMENT_COUNT()
 #endif
 
-   CountArg = 0
    do NArg=1,NumArgs
     call GetArg(NArg,arg)
-    if( arg(1:4).eq."help" .or. arg(1:4).eq."Help" .or. arg(1:4).eq."HELP") then
+    success = .false.
+    call ReadCommandLineArgument(arg, "help", success, help)
+    if( help ) then
         call PrintCommandLineArgs()
-        stop
-    elseif( arg(1:9).eq."Collider=" ) then
-        read(arg(10:10),*) Collider
-        CountArg = CountArg + 1
-    elseif( arg(1:7).eq."PDFSet=" ) then
-        read(arg(8:10),*) PDFSet
-        CountArg = CountArg + 1
-    elseif( arg(1:7).eq."LHAPDF=" ) then
-        read(arg(8:107),"(A)") LHAPDFString
-        CountArg = CountArg + 1
-    elseif( arg(1:10).eq."LHAPDFMem=" ) then
-        read(arg(11:13),*) LHAPDFMember
-        CountArg = CountArg + 1
-    elseif( arg(1:6).eq."MReso=" ) then
-        read(arg(7:12),*) M_Reso
-        M_Reso = M_Reso*GeV
-        CountArg = CountArg + 1
-    elseif( arg(1:9).eq."VegasNc0=" ) then
-        read(arg(10:17),*) VegasNc0
-        CountArg = CountArg + 1
-    elseif( arg(1:9).eq."VegasNc1=" ) then
-        read(arg(10:17),*) VegasNc1
-        CountArg = CountArg + 1
-    elseif( arg(1:9).eq."VegasNc2=" ) then
-        read(arg(10:17),*) VegasNc2
-        CountArg = CountArg + 1
-    elseif( arg(1:9).eq."PChannel=" ) then
-        read(arg(10:11),*) PChannel
-        CountArg = CountArg + 1
-    elseif( arg(1:9).eq."DataFile=" ) then
-        read(arg(10:500),"(A)") DataFile
-        CountArg = CountArg + 1
-    elseif( arg(1:8).eq."Process=" ) then
-        read(arg(9:11),*) Process
-        CountArg = CountArg + 1
-    elseif( arg(1:11).eq."DecayMode1=" ) then
-        read(arg(12:13),*) DecayMode1
-        CountArg = CountArg + 1
-    elseif( arg(1:11).eq."DecayMode2=" ) then
-        read(arg(12:13),*) DecayMode2
-        CountArg = CountArg + 1
-    elseif( arg(1:10).eq."FacScheme=" ) then
-        read(arg(11:13),*) FacScheme
-        CountArg = CountArg + 1
-    elseif( arg(1:10).eq."RenScheme=" ) then
-        read(arg(11:13),*) RenScheme
-        CountArg = CountArg + 1
-    elseif( arg(1:16).eq."MuFacMultiplier=" ) then
-        read(arg(17:24),*) MuFacMultiplier
-        CountArg = CountArg + 1
-    elseif( arg(1:16).eq."MuRenMultiplier=" ) then
-        read(arg(17:24),*) MuRenMultiplier
-        CountArg = CountArg + 1
-    elseif( arg(1:6).eq."TopDK=" ) then
-        read(arg(7:7),*) TopDecays
-        CountArg = CountArg + 1
-    elseif( arg(1:6).eq."TauDK=" ) then
-        read(arg(7:7),*) TauDecays
-        CountArg = CountArg + 1
-    elseif( arg(1:12).eq."WidthScheme=" ) then
-        read(arg(13:13),*) WidthScheme
-        CountArg = CountArg + 1
-    elseif( arg(1:7) .eq."OffXVV=" ) then
-        read(arg(8:10),*) OffShell_XVV
-        CountArg = CountArg + 1
-    elseif( arg(1:12).eq."FilterNLept=" ) then
-        read(arg(13:13),*) RequestNLeptons
-        CountArg = CountArg + 1
-    elseif( arg(1:14) .eq."FilterOSPairs=" ) then
-        read(arg(15:15),*) RequestOS
-        CountArg = CountArg + 1
-    elseif( arg(1:16) .eq."FilterOSSFPairs=" ) then
-        read(arg(17:17),*) RequestOSSF
-        CountArg = CountArg + 1
-    elseif( arg(1:14) .eq."CountTauAsAny=" ) then
-        read(arg(15:15),*) iargument
-        if( iargument.eq.1 ) then
-            CountTauAsAny = .true.
-        else
-            CountTauAsAny = .false.
-        endif
-        CountArg = CountArg + 1
-    elseif( arg(1:11) .eq."FilterOSSF=" ) then
-        read(arg(12:12),*) iargument
-        write(*,*), "The filtering syntax has changed to become more general.  Please see the manual for more details."
-        if( iargument.eq.1 ) then
-            write(*,*), "Setting FilterOSSFPairs=2"
-            RequestOSSF = 2
-        endif        
-        CountArg = CountArg + 1
-    elseif( arg(1:11) .eq."Unweighted=" ) then
-        read(arg(12:12),*) iargument
-        if( iargument.eq.0 ) then
-            Unweighted = .false.
-        else
-            Unweighted = .true.
-        endif
-        CountArg = CountArg + 1
-    elseif( arg(1:7) .eq."Interf=" ) then
-        read(arg(8:8),*) iinterf
-        CountArg = CountArg + 1
-    elseif( arg(1:8) .eq."ReadLHE=" ) then
-        read(arg(9:500),"(A)") LHEProdFile
-        ReadLHEFile=.true.
-        CountArg = CountArg + 1
-    elseif( arg(1:11) .eq."ConvertLHE=" ) then
-        read(arg(12:500),"(A)") LHEProdFile
-        ConvertLHEFile=.true.
-        CountArg = CountArg + 1
-    elseif( arg(1:9) .eq."ReadCSmax" ) then
-        ReadCSmax=.true.
-        CountArg = CountArg + 1
-    elseif( arg(1:9) .eq."CalcPMZZ" ) then
-        CalcPMZZ=.true.
-        CountArg = CountArg + 1
-    elseif( arg(1:9) .eq."GenEvents" ) then
-        GenerateEvents=.true.
-        Unweighted=.false.
-        CountArg = CountArg + 1
-    elseif( arg(1:18) .eq."WriteFailedEvents=" ) then
-        read(arg(19:19),*) WriteFailedEvents
-        CountArg = CountArg + 1
+        stop 1
+    endif
+    !ReadCommandLineArgument is overloaded, it puts the value into the last argument
+    ! by detecting the type.  It also sets success to .true. if the argument name (before =)
+    ! is correct.
+    call ReadCommandLineArgument(arg, "Collider", success, Collider)
+#if useLHAPDF==1
+    call ReadCommandLineArgument(arg, "LHAPDF", success, LHAPDFString)
+    call ReadCommandLineArgument(arg, "LHAPDFMem", success, LHAPDFMember)
+#else
+    call ReadCommandLineArgument(arg, "PDFSet", success, PDFSet)
+#endif
+    call ReadCommandLineArgument(arg, "MReso", success, M_Reso, SetLastArgument)
+    if( SetLastArgument ) M_Reso = M_Reso*GeV
+    call ReadCommandLineArgument(arg, "GaReso", success, Ga_Reso, SetLastArgument)
+    if( SetLastArgument ) Ga_Reso = Ga_Reso*GeV
+    call ReadCommandLineArgument(arg, "VegasNc0", success, VegasNc0)
+    call ReadCommandLineArgument(arg, "VegasNc1", success, VegasNc1)
+    call ReadCommandLineArgument(arg, "VegasNc2", success, VegasNc2)
+    call ReadCommandLineArgument(arg, "PChannel", success, PChannel)
+    call ReadCommandLineArgument(arg, "DataFile", success, DataFile)
+    call ReadCommandLineArgument(arg, "Process", success, Process)
+    call ReadCommandLineArgument(arg, "DecayMode1", success, DecayMode1)
+    call ReadCommandLineArgument(arg, "DecayMode2", success, DecayMode2)
+    call ReadCommandLineArgument(arg, "FacScheme", success, FacScheme, success2=SetFacScheme)
+    call ReadCommandLineArgument(arg, "RenScheme", success, RenScheme, SetLastArgument, success2=SetRenScheme)
+    call ReadCommandLineArgument(arg, "MuFacMultiplier", success, MuFacMultiplier, success2=SetMuFacMultiplier)
+    call ReadCommandLineArgument(arg, "MuRenMultiplier", success, MuRenMultiplier, success2=SetMuRenMultiplier)
+    call ReadCommandLineArgument(arg, "TopDK", success, TopDecays)
+    call ReadCommandLineArgument(arg, "TauDK", success, TauDecays)
+    call ReadCommandLineArgument(arg, "ReweightDecay", success, ReweightDecay)
+    call ReadCommandLineArgument(arg, "WidthScheme", success, WidthScheme)
+    call ReadCommandLineArgument(arg, "WidthSchemeIn", success, WidthSchemeIn)
+    call ReadCommandLineArgument(arg, "ReadPMZZ", success, ReadPMZZ)
+    call ReadCommandLineArgument(arg, "PrintPMZZ", success, PrintPMZZ, SetLastArgument, success2=DoPrintPMZZ)
+    if( SetLastArgument ) PrintPMZZ = PrintPMZZ*GeV !PrintPMZZ is a complex(8), the real and imaginary parts are the minimum and maximum values to print
+    call ReadCommandLineArgument(arg, "PrintPMZZIntervals", success, PrintPMZZIntervals)
+    call ReadCommandLineArgument(arg, "PMZZEvals", success, PMZZEvals)
+    call ReadCommandLineArgument(arg, "OffshellX", success, OffShellReson)
+    call ReadCommandLineArgument(arg, "FilterNLept", success, RequestNLeptons)
+    call ReadCommandLineArgument(arg, "FilterOSPairs", success, RequestOS)
+    call ReadCommandLineArgument(arg, "FilterOSSFPairs", success, RequestOSSF)
+    call ReadCommandLineArgument(arg, "CountTauAsAny", success, CountTauAsAny)
+    call ReadCommandLineArgument(arg, "Unweighted", success, Unweighted)
+    call ReadCommandLineArgument(arg, "Interf", success, includeInterference, success2=interfSet)
+    call ReadCommandLineArgument(arg, "ReadLHE", success, LHEProdFile, success2=ReadLHEFile)
+    call ReadCommandLineArgument(arg, "ConvertLHE", success, LHEProdFile, success2=ConvertLHEFile)
+    call ReadCommandLineArgument(arg, "ReadCSmax", success, ReadCSmax)
+    call ReadCommandLineArgument(arg, "GenEvents", success, GenerateEvents, SetLastArgument)
+    if( SetLastArgument ) Unweighted = .false.
+    call ReadCommandLineArgument(arg, "WriteFailedEvents", success, WriteFailedEvents)
+    call ReadCommandLineArgument(arg, "Seed", success, UserSeed)
+    call ReadCommandLineArgument(arg, "WriteGit", success, writegit) !for testing purposes
+
+    !anomalous couplings
+    !If any anomalous couplings are set, the default ones have to be set explicitly to keep them on or turn them off
+    !e.g. just setting ghz4=0.2982,0 is ambiguous if you mean to leave g1 on (so fa3=0.5)
+    !                                                      or to turn it off (fa3=1 with a weird prefactor)
+    !spin 0 gg couplings
+    call ReadCommandLineArgument(arg, "ghg2", success, ghg2, success2=SetAnomalousSpin0gg, success3=Setghg2)
+    call ReadCommandLineArgument(arg, "ghg3", success, ghg3, success2=SetAnomalousSpin0gg)
+    call ReadCommandLineArgument(arg, "ghg4", success, ghg4, success2=SetAnomalousSpin0gg)
+
+    !spin 0 ZZ couplings
+    call ReadCommandLineArgument(arg, "ghz1", success, ghz1, success2=SetAnomalousSpin0ZZ, success3=Setghz1)
+    call ReadCommandLineArgument(arg, "ghz2", success, ghz2, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "ghz3", success, ghz3, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "ghz4", success, ghz4, success2=SetAnomalousSpin0ZZ)
+
+    !spin 0 Zgamma couplings
+    call ReadCommandLineArgument(arg, "ghzgs2", success, ghzgs2, success2=SetZgammacoupling)
+    call ReadCommandLineArgument(arg, "ghzgs3", success, ghzgs3, success2=SetZgammacoupling)
+    call ReadCommandLineArgument(arg, "ghzgs4", success, ghzgs4, success2=SetZgammacoupling)
+
+    !spin 0 gammagamma couplings
+    call ReadCommandLineArgument(arg, "ghgsgs2", success, ghgsgs2, success2=Setgammagammacoupling)
+    call ReadCommandLineArgument(arg, "ghgsgs3", success, ghgsgs3, success2=Setgammagammacoupling)
+    call ReadCommandLineArgument(arg, "ghgsgs4", success, ghgsgs4, success2=Setgammagammacoupling)
+
+    !spin 0 ZZ momentum dependent couplings
+    call ReadCommandLineArgument(arg, "ghz1_prime", success, ghz1_prime, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "ghz1_prime2", success, ghz1_prime2, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "ghz1_prime3", success, ghz1_prime3, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "ghz1_prime4", success, ghz1_prime4, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "ghz1_prime5", success, ghz1_prime5, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "ghz1_prime6", success, ghz1_prime6, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "ghz1_prime7", success, ghz1_prime7, success2=SetAnomalousSpin0ZZ)
+
+    call ReadCommandLineArgument(arg, "ghz2_prime", success, ghz2_prime, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "ghz2_prime2", success, ghz2_prime2, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "ghz2_prime3", success, ghz2_prime3, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "ghz2_prime4", success, ghz2_prime4, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "ghz2_prime5", success, ghz2_prime5, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "ghz2_prime6", success, ghz2_prime6, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "ghz2_prime7", success, ghz2_prime7, success2=SetAnomalousSpin0ZZ)
+
+    call ReadCommandLineArgument(arg, "ghz3_prime", success, ghz3_prime, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "ghz3_prime2", success, ghz3_prime2, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "ghz3_prime3", success, ghz3_prime3, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "ghz3_prime4", success, ghz3_prime4, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "ghz3_prime5", success, ghz3_prime5, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "ghz3_prime6", success, ghz3_prime6, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "ghz3_prime7", success, ghz3_prime7, success2=SetAnomalousSpin0ZZ)
+
+    call ReadCommandLineArgument(arg, "ghz4_prime", success, ghz4_prime, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "ghz4_prime2", success, ghz4_prime2, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "ghz4_prime3", success, ghz4_prime3, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "ghz4_prime4", success, ghz4_prime4, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "ghz4_prime5", success, ghz4_prime5, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "ghz4_prime6", success, ghz4_prime6, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "ghz4_prime7", success, ghz4_prime7, success2=SetAnomalousSpin0ZZ)
+
+    !spin 0 Zgamma momentum dependent coupling
+    call ReadCommandLineArgument(arg, "ghzgs1_prime2", success, ghzgs1_prime2, success2=SetZgammacoupling)
+
+    ! Sign of q1,2,12**2 for the Lambda's, set to 1 or -1 to get q**2-dependence from these form factor Lambdas
+    call ReadCommandLineArgument(arg, "cz_q1sq", success, cz_q1sq, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "cz_q2sq", success, cz_q1sq, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "cz_q12sq", success, cz_q1sq, success2=SetAnomalousSpin0ZZ)
+
+    !spin 0 WW couplings
+    call ReadCommandLineArgument(arg, "ghw1", success, ghw1, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "ghw2", success, ghw2, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "ghw3", success, ghw3, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "ghw4", success, ghw4, success2=distinguish_HWWcouplings)
+
+    call ReadCommandLineArgument(arg, "ghw1_prime", success, ghw1_prime, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "ghw1_prime2", success, ghw1_prime2, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "ghw1_prime3", success, ghw1_prime3, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "ghw1_prime4", success, ghw1_prime4, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "ghw1_prime5", success, ghw1_prime5, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "ghw1_prime6", success, ghw1_prime6, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "ghw1_prime7", success, ghw1_prime7, success2=distinguish_HWWcouplings)
+
+    call ReadCommandLineArgument(arg, "ghw2_prime", success, ghw2_prime, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "ghw2_prime2", success, ghw2_prime2, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "ghw2_prime3", success, ghw2_prime3, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "ghw2_prime4", success, ghw2_prime4, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "ghw2_prime5", success, ghw2_prime5, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "ghw2_prime6", success, ghw2_prime6, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "ghw2_prime7", success, ghw2_prime7, success2=distinguish_HWWcouplings)
+
+    call ReadCommandLineArgument(arg, "ghw3_prime", success, ghw3_prime, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "ghw3_prime2", success, ghw3_prime2, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "ghw3_prime3", success, ghw3_prime3, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "ghw3_prime4", success, ghw3_prime4, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "ghw3_prime5", success, ghw3_prime5, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "ghw3_prime6", success, ghw3_prime6, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "ghw3_prime7", success, ghw3_prime7, success2=distinguish_HWWcouplings)
+
+    call ReadCommandLineArgument(arg, "ghw4_prime", success, ghw4_prime, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "ghw4_prime2", success, ghw4_prime2, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "ghw4_prime3", success, ghw4_prime3, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "ghw4_prime4", success, ghw4_prime4, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "ghw4_prime5", success, ghw4_prime5, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "ghw4_prime6", success, ghw4_prime6, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "ghw4_prime7", success, ghw4_prime7, success2=distinguish_HWWcouplings)
+
+    ! Sign of q1,2,12**2 for the Lambda's, set to 1 or -1 to get q**2-dependence from these form factor Lambdas
+    call ReadCommandLineArgument(arg, "cw_q1sq", success, cw_q1sq, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "cw_q2sq", success, cw_q1sq, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "cw_q12sq", success, cw_q1sq, success2=distinguish_HWWcouplings)
+
+    !spin 1
+    call ReadCommandLineArgument(arg, "zprime_qq_left", success, zprime_qq_left, success2=SetAnomalousSpin1qq, success3=Setspin1qqleft)
+    call ReadCommandLineArgument(arg, "zprime_qq_right", success, zprime_qq_right, success2=SetAnomalousSpin1qq, success3=Setspin1qqright)
+    call ReadCommandLineArgument(arg, "zprime_zz_1", success, zprime_zz_1, success2=SetAnomalousSpin1ZZ)
+    call ReadCommandLineArgument(arg, "zprime_zz_2", success, zprime_zz_2, success2=SetAnomalousSpin1ZZ)
+
+    !spin 2
+    call ReadCommandLineArgument(arg, "a1", success, a1, success2=SetAnomalousSpin2gg)
+    call ReadCommandLineArgument(arg, "a2", success, a2, success2=SetAnomalousSpin2gg)
+    call ReadCommandLineArgument(arg, "a3", success, a3, success2=SetAnomalousSpin2gg)
+    call ReadCommandLineArgument(arg, "a4", success, a4, success2=SetAnomalousSpin2gg)
+    call ReadCommandLineArgument(arg, "a5", success, a5, success2=SetAnomalousSpin2gg)
+    call ReadCommandLineArgument(arg, "graviton_qq_left", success, graviton_qq_left, success2=SetAnomalousSpin2qq, success3=Setspin2qqleft)
+    call ReadCommandLineArgument(arg, "graviton_qq_right", success, graviton_qq_right, success2=SetAnomalousSpin2qq, success3=Setspin2qqright)
+    call ReadCommandLineArgument(arg, "b1", success, b1, success2=SetAnomalousSpin2ZZ)
+    call ReadCommandLineArgument(arg, "b2", success, b2, success2=SetAnomalousSpin2ZZ)
+    call ReadCommandLineArgument(arg, "b3", success, b3, success2=SetAnomalousSpin2ZZ)
+    call ReadCommandLineArgument(arg, "b4", success, b4, success2=SetAnomalousSpin2ZZ)
+    call ReadCommandLineArgument(arg, "b5", success, b5, success2=SetAnomalousSpin2ZZ)
+    call ReadCommandLineArgument(arg, "b6", success, b6, success2=SetAnomalousSpin2ZZ)
+    call ReadCommandLineArgument(arg, "b7", success, b7, success2=SetAnomalousSpin2ZZ)
+    call ReadCommandLineArgument(arg, "b8", success, b8, success2=SetAnomalousSpin2ZZ)
+    call ReadCommandLineArgument(arg, "b9", success, b9, success2=SetAnomalousSpin2ZZ)
+    call ReadCommandLineArgument(arg, "b10", success, b10, success2=SetAnomalousSpin2ZZ)
+
+    !Hff couplings
+    call ReadCommandLineArgument(arg, "kappa", success, kappa, success2=SetAnomalousHff, success3=Setkappa)
+    call ReadCommandLineArgument(arg, "kappa_tilde", success, kappa_tilde, success2=SetAnomalousHff)
+
+    !cuts
+    call ReadCommandLineArgument(arg, "pTjetcut", success, pTjetcut, SetLastArgument)
+    if( SetLastArgument ) pTjetcut = pTjetcut*GeV
+    call ReadCommandLineArgument(arg, "deltaRcut", success, Rjet)
+    call ReadCommandLineArgument(arg, "mJJcut", success, mJJcut, SetLastArgument)
+    if( SetLastArgument ) mJJcut = mJJcut*GeV
+    call ReadCommandLineArgument(arg, "VBF_m4l_min", success, m4l_minmax(1), SetLastArgument)
+    if( SetLastArgument ) m4l_minmax(1) = m4l_minmax(1)*GeV
+    call ReadCommandLineArgument(arg, "VBF_m4l_max", success, m4l_minmax(2), SetLastArgument)
+    if( SetLastArgument ) m4l_minmax(2) = m4l_minmax(2)*GeV
+    call ReadCommandLineArgument(arg, "MPhotonCutoff", success, MPhotonCutoff, SetLastArgument)
+    if( SetLastArgument ) MPhotonCutoff = MPhotonCutoff*GeV
+
+    if( .not.success ) then
+        call Error("Unknown command line argument: " // trim(arg))
     endif
    enddo
 
-    if( CountArg.ne.NumArgs ) then
-        call Error("Unknown command line argument")
-    endif
+    !================================
+    !Command line argument processing
+    !================================
+
+    !PChannel
 
     if (Process.eq.0) PChannel = 0   !only gluons
     if (Process.eq.1 .or. Process.eq.50 .or. Process.eq.60 .or. Process.eq.66) PChannel = 1   !only quarks
 
-    if(OffShell_XVV.ge.100) then
-        OffShell_XVV=OffShell_XVV-100
-        OffShellReson=.true.
-    else
-        OffShellReson=.false.
-    endif
-    if(OffShell_XVV.ge.10) then
-        OffShell_XVV=OffShell_XVV-10
-        OffShellV1=.true.
-    else
-        OffShellV1=.false.
-    endif
-    if(OffShell_XVV.ge.1) then
-        OffShell_XVV=OffShell_XVV-1
-        OffShellV2=.true.
-    else
-        OffShellV2=.false.
-    endif
+    !LHAPDF
 
 #if useLHAPDF==1
     if( LHAPDFString.eq."" ) then
        print *, "Need to specify pdf file name in command line argument LHAPDF"
-       stop    
+       stop 1
     endif
+    call GET_ENVIRONMENT_VARIABLE("LHAPDF_DATA_PATH", LHAPDF_DATA_PATH)
 #endif    
     
-!     if( ((OffShellV1).or.(OffShellV2).or.(OffShellReson)) ) then
-!         print *, "off shell Z/W's only allowed for spin 0,2 resonance"
-! !         stop
-!     endif
+    !Renormalization/factorization schemes
+
+    if((abs(FacScheme) .ge. nRenFacSchemes) .or. (abs(RenScheme) .ge. nRenFacSchemes) .or. (MuFacMultiplier.le.0d0) .or. (MuRenMultiplier.le.0d0)) call Error("The renormalization or factorization scheme is invalid, or the scale multiplier to either is not positive.")
+    if( SetFacScheme.neqv.SetMuFacMultiplier ) call Error("If you want to set the factorization scale, please set both the scheme (FacScheme) and the multiplier (MuFacMultiplier)")
+    if( SetRenScheme.neqv.SetMuRenMultiplier ) call Error("If you want to set the renormalization scale, please set both the scheme (RenScheme) and the multiplier (MuRenMultiplier)")
+
+    !ReadLHE and ConvertLHE
+    !MUST HAPPEN BEFORE DETERMINING INTERFERENCE
+    !so that the mass and width can be read
+    !AND BEFORE DEALING WITH WIDTHSCHEMES
+    !so that WidthSchemeIn can be read
+
+    if( ReadLHEFile .and. Process.ne.0  ) then
+        print *, "ReadLHE option is only allowed for spin-0 resonances"
+        stop 1
+    endif
+    if( ConvertLHEFile .and. Process.ne.0  ) then
+        print *, "ConvertLHE option is only allowed for spin-0 resonances"
+        stop 1
+    endif
+    if( ReadLHEFile .and. .not. Unweighted ) then
+        print *, "ReadLHE option is only allowed for generating unweighted events"
+        stop 1
+    endif
+
+    if (ReadLHEFile .or. ConvertLHEFile) then
+       call OpenFiles()
+       call ReadMassWidth()
+    endif
+
+    !DecayModes, interference, photon couplings, ...
 
     if( ConvertLHEFile ) then
        DecayMode2 = DecayMode1
     endif 
-
-    if((abs(FacScheme) .ge. nRenFacSchemes) .or. (abs(RenScheme) .ge. nRenFacSchemes) .or. (MuFacMultiplier.le.0d0) .or. (MuRenMultiplier.le.0d0)) call Error("The renormalization or factorization scheme is invalid, or the scale multiplier to either is not positive.")
 
     if( Process.eq.50 ) then
         DecayMode2=DecayMode1
@@ -473,6 +615,15 @@ integer :: NumArgs,NArg,OffShell_XVV,iargument,CountArg,iinterf
     if( (TauDecays.eq.1) .and. .not. IsAWDecay(DecayMode1) ) call Error("Invalid DecayMode1 for tau decays")
     if( (TauDecays.eq.1) .and. .not. IsAWDecay(DecayMode2) ) call Error("Invalid DecayMode2 for tau decays")
 
+    ! Checks on DecayMode1 and 2
+    ! First check!
+    if( IsAPhoton(DecayMode1) .and. IsAZDecay(DecayMode2) ) then
+       print *, " DecayMode1=",DecayMode1," and DecayMode2=",DecayMode2," are not allowed. Swapping the decay modes."
+       DecayMode1 = DecayMode1 + DecayMode2
+       DecayMode2 = DecayMode1 - DecayMode2
+       DecayMode1 = DecayMode1 - DecayMode2
+    endif
+
     if( IsAZDecay(DecayMode1) ) then
        M_V = M_Z
        Ga_V= Ga_Z
@@ -484,92 +635,69 @@ integer :: NumArgs,NArg,OffShell_XVV,iargument,CountArg,iinterf
        Ga_V= 0d0    
     endif
 
-    if (ReadLHEFile .or. ConvertLHEFile) then
-       call OpenFiles()
-       call ReadMassWidth()
-    endif
-
     if( (DecayMode1.eq.DecayMode2 .and. IsAZDecay(DecayMode1)) .or.  &
         (DecayMode1.eq.9) .or. (DecayMode2.eq.9)               .or.  &
         (DecayMode1.eq.8  .and. DecayMode2.eq.0)               .or.  &
         (DecayMode1.eq.8  .and. DecayMode2.eq.2)               .or.  &
         (DecayMode1.eq.0  .and. DecayMode2.eq.8)               .or.  &
         (DecayMode1.eq.2  .and. DecayMode2.eq.8)               ) then !  allow interference
-            if( iinterf.eq.-1 ) then!  set default interference switch
+            if( .not.interfSet ) then!  set default interference switch
                 if( M_Reso.gt.2d0*M_Z ) then
                     includeInterference = .false.
                 else
                     includeInterference = .true.
                 endif
-            elseif( iinterf.eq.0 ) then! overwrite default and use user selection
-                includeInterference = .false.
-            else
-                includeInterference = .true.
             endif
     else
         includeInterference = .false.   ! no interference if decay mode does not allow 4 same flavor leptons
     endif
 
-    if( IsAZDecay(DecayMode1) .and. IsAWDecay(DecayMode2) ) then
-       print *, " DecayMode1=",DecayMode1," and DecayMode2=",DecayMode2," are not allowed."
-       stop
+    if( IsAZDecay(DecayMode1) .and. IsAZDecay(DecayMode2) ) then
+        includeGammaStar = (SetZgammacoupling .or. Setgammagammacoupling)
+    elseif( IsAZDecay(DecayMode1) .and. IsAPhoton(DecayMode2) ) then
+        includeGammaStar = Setgammagammacoupling
     endif
 
-!     if( IsAZDecay(DecayMode1) .and. IsAPhoton(DecayMode2) ) then
-!        print *, " DecayMode1=",DecayMode1," and DecayMode2=",DecayMode2," are not allowed."
-!        stop
-!     endif
-
-    if( IsAWDecay(DecayMode1) .and. IsAZDecay(DecayMode2) ) then
-       print *, " DecayMode1=",DecayMode1," and DecayMode2=",DecayMode2," are not allowed."
-       stop
-    endif
-
-    if( IsAWDecay(DecayMode1) .and. IsAPhoton(DecayMode2) ) then
-       print *, " DecayMode1=",DecayMode1," and DecayMode2=",DecayMode2," are not allowed."
-       stop
-    endif
-
-    if( IsAPhoton(DecayMode1) .and. (IsAZDecay(DecayMode2) .or. IsAWDecay(DecayMode2)) ) then
-       print *, " DecayMode1=",DecayMode1," and DecayMode2=",DecayMode2," are not allowed."
-       print *, " Please try swapping the decay modes."
-       stop
-    endif
-
-    if( IsAPhoton(DecayMode2) .and. (IsAZDecay(DecayMode1) .or. IsAWDecay(DecayMode1)) ) then! require OffXVV=010 for Z+photon
-       if( .not. ((.not.OffShellReson) .and. OffShellV1 .and. (.not.OffShellV2)) ) then
-          print *, "OffXVV has to be 010 for Z+photon production"
-          stop
-       endif
-    endif
-
-    if( IsAPhoton(DecayMode2) .and. (.not.IsAPhoton(DecayMode1) .and. .not. IsAZDecay(DecayMode1)) ) then
-       print *, " DecayMode1=",DecayMode1," and DecayMode2=",DecayMode2," are not allowed."
-       stop
-    endif
-
-    if( IsAPhoton(DecayMode1) .and. (OffShellV1 .or. OffShellV2) ) then
-       print *, " Photons have to be on-shell."
-       stop
-    endif
 
     if( (DecayMode1.ge.12) .or. (DecayMode2.ge.12) .or. (DecayMode1.lt..0) .or. (DecayMode2.lt.0) ) then
-       print *, " DecayMode1=",DecayMode1," and DecayMode2=",DecayMode2," are not allowed."
-       stop
+       print *," DecayMode1=",DecayMode1," and DecayMode2=",DecayMode2," are not allowed."
+       stop 1
     endif
 
-    if( ReadLHEFile .and. Process.ne.0  ) then
-        print *, "ReadLHE option is only allowed for spin-0 resonances"
-        stop
+    if( &
+        ( IsAWDecay(DecayMode1).and.(IsAZDecay(DecayMode2).or.IsAPhoton(DecayMode2)) ) .or. &
+        ( IsAWDecay(DecayMode2).and.(IsAZDecay(DecayMode1).or.IsAPhoton(DecayMode1)) )     &
+        ) then
+       print *, " DecayMode1=",DecayMode1," and DecayMode2=",DecayMode2," are not allowed."
+       stop 1
     endif
-    if( ConvertLHEFile .and. Process.ne.0  ) then
-        print *, "ConvertLHE option is only allowed for spin-0 resonances"
-        stop
+
+
+    if( IsAZDecay(DecayMode1) .and. IsAPhoton(DecayMode2) .and. .not.SetZgammacoupling .and. .not.Setgammagammacoupling .and. (Process.eq.0)) then
+        print *, "To decay the resonance to Z+photon, you need to set one of the HZgamma (ghzgs*) or Hgammagamma (ghgsgs*) couplings."
+        stop 1
     endif
-    if( ReadLHEFile .and. .not. Unweighted ) then
-        print *, "ReadLHE option is only allowed for generating unweighted events"
-        stop
+
+    if( IsAPhoton(DecayMode1) .and. IsAPhoton(DecayMode2) .and. .not.Setgammagammacoupling .and. (Process.eq.0)) then
+        print *, "To decay the resonance to photon+photon, you need to set one of the Hgammagamma (ghgsgs*) couplings."
+        stop 1
     endif
+
+    !---------------------------------------!
+    !           Set OffShellV1/V2           !
+    !---------------------------------------!
+    if( IsAPhoton(DecayMode2) .and. IsAZDecay(DecayMode1) ) then ! require OffXVV=*10 for Z+photon
+       print *,"Z is off-shell and photon is on-shell in Z+photon production."
+       print *,"Randomization of the order of writing of the decay products to the LHE file is disabled."
+       RandomizeVVdecays = .false.
+    elseif( IsAPhoton(DecayMode2) .and. IsAPhoton(DecayMode1) ) then ! require OffXVV=*00 for photon+photon
+       print *,"Both photons are on-shell in photon+photon production."
+    endif
+    OffShellV1=.not.IsAPhoton(DecayMode1)
+    OffShellV2=.not.IsAPhoton(DecayMode2)
+
+
+    !lepton filter
 
     if( RequestOS.lt.RequestOSSF ) then
         RequestOS = RequestOSSF
@@ -578,8 +706,105 @@ integer :: NumArgs,NArg,OffShell_XVV,iargument,CountArg,iinterf
         RequestNLeptons = 2*RequestOS
     endif
 
+    !WidthScheme and reweighting
+    if( (WidthScheme.eq.0 .or. WidthSchemeIn.eq.0) .and. .not.DoPrintPMZZ ) then
+        print *, "WidthScheme=0 removes the propagator entirely!  This generally only makes sense in PrintPMZZ mode."
+        print *, "If you really want to use it anyway, remove this error in main.F90 and recompile."
+        stop 1
+    endif
+    if( .not.ReadLHEFile .and. .not.DoPrintPMZZ ) then
+        if( ReweightDecay .or. WidthSchemeIn.gt.0 ) then
+            call Error("ReweightDecay and WidthSchemeIn only make sense in ReadLHE mode")
+        endif
+        if( WidthScheme.lt.0 ) then
+            WidthScheme = 2
+        endif
+        WidthSchemeIn = WidthScheme
+    else
+        if( WidthSchemeIn.eq.0 .and. ReweightDecay ) then
+            print *, "Can't ReweightDecay for WidthSchemeIn=0"
+            stop 1
+        endif
+        if( WidthScheme.lt.0 .and. WidthSchemeIn.lt.0 ) then
+            if( ReweightDecay ) then
+                print *, "If you want to reweight the decay, you need to specify a width scheme to correct"
+                print *, " for the VV branching fraction/matrix element."
+                stop 1
+            endif
+            WidthScheme = 2
+            WidthSchemeIn = 2
+        elseif( WidthScheme.lt.0 .and. WidthSchemeIn.ge.0 ) then
+            WidthScheme = WidthSchemeIn
+        elseif( WidthScheme.ge.0 .and. WidthSchemeIn.lt.0 ) then
+            WidthSchemeIn = WidthScheme
+        else !both > 0
+            !nothing
+        endif
+    endif
+
+    if( PMZZEvals.lt.0 ) then
+        !more evals for a lower mass Higgs because the integration converges slower there
+        PMZZEvals = int(200000 * (1 + 24*dexp((1d0-m_Reso/(125d0*GeV))*4d0)))
+        if( PMZZEvals.gt.10000000 ) PMZZEvals = 10000000
+    endif
+
+    !WriteFailedEvents
+
     if( WriteFailedEvents.lt.0 .or. WriteFailedEvents.gt.2 ) then
         call Error("WriteFailedEvents can only be 0, 1, or 2.  Please see the manual.")
+    endif
+
+
+    !---------------------------------------!
+    !            Check couplings            !
+    !---------------------------------------!
+    ! Spin-0 (incomplete)
+    if( SetAnomalousSpin0gg .and. .not.Setghg2 ) then
+        call Error("If you set an anomalous spin 0 gg coupling, you need to explicitly set ghg2 as well. This coupling is initialized to a non-zero value.")
+    endif
+    if( .not.Setghz1 .and. OffShellV1 .and. OffShellV2 .and. (SetAnomalousSpin0ZZ .or. ((SetZgammacoupling .or. Setgammagammacoupling) .and. IsAZDecay(DecayMode1)))) then
+        call Error("If you set an anomalous spin 0 VV coupling, you need to explicitly set ghz1 as well. This couplings is initialized to a non-zero value.")
+    endif
+    if( SetAnomalousHff .and. .not.Setkappa ) then
+        call Error("If you set an anomalous Hff coupling, you need to explicitly set kappa as well. This coupling is initialized to a non-zero value.")
+    endif
+
+
+    ! Spin-1
+    if( Process.eq.1) then
+       if( SetAnomalousSpin1qq .and. .not.(Setspin1qqleft.and.Setspin1qqright) ) then
+           call Error("If you set an anomalous spin 1 qq coupling, you need to set both zprime_qq_left and zprime_qq_right.")
+       endif
+       if (zprime_zz_1.eq.czero .and. zprime_zz_2.eq.czero) then
+          call Error("For spin 1 production, you need to explicitly set zprime_zz_1 (1-) or zprime_zz_2 (1+) non-zero.")
+       endif
+       if (zprime_qq_left.eq.czero .and. zprime_qq_right.eq.czero) then
+          call Error("For spin 1 production, zprime_qq_left and zprime_qq_right cannot both be 0.")
+       endif
+    endif
+
+    ! Spin-2
+    if( Process.eq.2) then
+       if( SetAnomalousSpin2qq .and. .not.(Setspin2qqleft.and.Setspin2qqright) ) then
+           call Error("If you set an anomalous spin 2 qq coupling, you need to explicitly set both graviton_qq_left and graviton_qq_right.")
+       endif
+       if ((graviton_qq_left.eq.czero .and. graviton_qq_right.eq.czero) .and. PChannel.ne.0) then
+          call Error("In spin 2 qq production, the couplings cannot all be zero. You can use PChannel=0 for gg-only production.")
+       endif
+       if ((a1.eq.czero .and. a2.eq.czero .and. a3.eq.czero .and. a4.eq.czero .and. a5.eq.czero) .and. PChannel.ne.1) then
+          call Error("In spin 2 gg production, the couplings cannot all be zero. You can use PChannel=1 for qq-only production.")
+       endif
+       if (b1.eq.czero .and. b2.eq.czero .and. b3.eq.czero .and. b4.eq.czero .and. b5.eq.czero .and. b6.eq.czero .and. b7.eq.czero .and. b8.eq.czero .and. b9.eq.czero .and. b10.eq.czero) then
+          call Error("Spin 2 VV decay cannot be done with zero couplings.")
+       endif
+       if (.not.(OffShellV1 .and. OffShellV2) .and. (b5.ne.czero .or. b6.ne.czero .or. b7.ne.czero .or. b9.ne.czero .or. b10.ne.czero)) then
+          call Error("Spin 2 Z+gamma or gamma+gamma decay cannot be done with b5-7 or b9-10.")
+       endif
+    endif
+
+    ! VBF
+    if( distinguish_HWWcouplings .and. Process.ne.60 .and. Process.ne.66 ) then
+        call Error("The separate HWW couplings are only used for VBF.  For H->WW decay or WH production, please set ghz* instead.")
     endif
 
 return
@@ -821,7 +1046,7 @@ include "vegas_common.f"
 ! NOTE: NDim for weighted vegas run is not minimal
 
       NDim = 0
-      NDim = NDim + 6    ! PS integration
+      NDim = NDim + 7    ! PS integration
       if( .not.ReadLHEFile ) NDim = NDim + 2    ! shat integration
       NDim = NDim + 1    ! offzchannel
       if( includeInterference ) NDim = NDim + 1    ! for interference
@@ -841,6 +1066,19 @@ include "vegas_common.f"
           VegasNc2_default = 10000
       endif
 
+      !- gg-->spin0-->4f
+      if(Process.eq.0 ) then
+        NDim = 11
+      endif
+      !- gg-->spin1-->4f
+      if(Process.eq.1 ) then
+        NDim = 12
+      endif
+      !- gg-->spin2-->4f
+      if(Process.eq.2 ) then
+        NDim = 12
+      endif
+      
       !- HVBF
       if(Process.eq.60) then
          NDim = 5        ! for phase space
@@ -852,13 +1090,15 @@ include "vegas_common.f"
          VegasNc1_default = 500000
          VegasNc2_default = 10000
       endif
+      
       !- HVBF with decays
       if(Process.eq.66) then
          NDim = 5
          NDim = NDim + 2 ! sHat integration
          NDim = NDim + 8
          NDim = NDim + 1
-         if( unweighted ) NDim = NDim + 1  ! random number which decides if event is accepted
+         NDim = NDim + 1
+         NDim = NDim + 1
          
          VegasIt1_default = 5
          VegasNc0_default = 10000000
@@ -1048,6 +1288,7 @@ if ( (unweighted.eqv..false.) .or. (GenerateEvents.eqv..true.) ) then  !--------
     EvalCounter=0
     RejeCounter=0
     AccepCounter=0
+    Br_counter(:,:) = 0
     AlertCounter=0
 
     avgcs = 0d0
@@ -1217,6 +1458,9 @@ elseif(unweighted.eqv..true.) then  !----------------------- unweighted events
     endif
     write(io_stdout,*)  " event generation rate (events/sec)",dble(AccepCounter)/(time_end-time_start)
 
+                 
+  endif! unweighted
+  
 
     if( Process.eq.0 .or. Process.eq.1 .or. Process.eq.2 ) then
           write(*,*) ""
@@ -1254,10 +1498,6 @@ elseif(unweighted.eqv..true.) then  !----------------------- unweighted events
       !                                  )/4d0/(one-sitW**2)/sitW**2      
 
     endif
-               
-   
-  endif! unweighted
-  
   
 
 
@@ -1315,7 +1555,9 @@ logical :: UseBetaVersion=.false.
       write(ProcessStr,"(I3)") Process
     endif
 
+! nprn = -1
 
+    
     call cpu_time(time_start)    
     warmup = .false.
     itmx = VegasIt1
@@ -1340,6 +1582,7 @@ if ( (unweighted.eqv..false.) .or. (GenerateEvents.eqv..true.) ) then  !--------
     itmx = VegasIt1
     ncall= VegasNc1
     warmup = .true.
+    if( Process.eq.0 .or. Process.eq.1 .or. Process.eq.2 ) call vegas(EvalWeighted,VG_Result,VG_Error,VG_Chi2)
     if( Process.eq.80 ) call vegas(EvalWeighted_TTBH,VG_Result,VG_Error,VG_Chi2)
     if( Process.eq.90 ) call vegas(EvalWeighted_BBBH,VG_Result,VG_Error,VG_Chi2)
     
@@ -1356,6 +1599,7 @@ if ( (unweighted.eqv..false.) .or. (GenerateEvents.eqv..true.) ) then  !--------
     !DATA RUN
     call ClearHisto()   
     warmup = .false.
+    Br_counter(:,:) = 0
     EvalCounter=0
     RejeCounter=0
     AccepCounter=0
@@ -1363,6 +1607,7 @@ if ( (unweighted.eqv..false.) .or. (GenerateEvents.eqv..true.) ) then  !--------
     avgcs = 0d0
     itmx = 2
     ncall= VegasNc2
+    if( Process.eq.0 .or. Process.eq.1 .or. Process.eq.2 ) call vegas1(EvalWeighted,VG_Result,VG_Error,VG_Chi2)
     if( Process.eq.80 ) call vegas1(EvalWeighted_TTBH,VG_Result,VG_Error,VG_Chi2)
     if( Process.eq.90 ) call vegas1(EvalWeighted_BBBH,VG_Result,VG_Error,VG_Chi2)
 
@@ -1380,13 +1625,15 @@ if ( (unweighted.eqv..false.) .or. (GenerateEvents.eqv..true.) ) then  !--------
 
 elseif(unweighted.eqv..true.) then  !----------------------- unweighted events
 
+if( Process.eq.0 .or. Process.eq.1 .or. Process.eq.2 ) UseBetaVersion=.true.
 if( Process.eq.60 ) UseBetaVersion=.true.
 if( Process.eq.61 ) UseBetaVersion=.true.
+if( Process.eq.66 ) UseBetaVersion=.true.
 
 
 if( UseBetaVersion ) then 
 ! !-------------------new stuff -------------------
-    write(io_stdout,"(1X,A)")  "Scanning the integrand"
+    write(io_stdout,"(2X,A)")  "Scanning the integrand"
     warmup = .true.
     itmx = 5
     ncall= VegasNc0
@@ -1400,19 +1647,22 @@ if( UseBetaVersion ) then
     else
         readin=.false.
         writeout=.true.
+        if( Process.eq.0 .or. Process.eq.1 .or. Process.eq.2 ) call vegas(EvalWeighted,VG_Result,VG_Error,VG_Chi2)
         if( Process.eq.60 ) call vegas(EvalWeighted_HJJ,VG_Result,VG_Error,VG_Chi2)
         if( Process.eq.61 ) call vegas(EvalWeighted_HJJ,VG_Result,VG_Error,VG_Chi2)
+        if( Process.eq.66 ) call vegas(EvalWeighted_HJJ_fulldecay,VG_Result,VG_Error,VG_Chi2)
         itmx = 3
     endif
       
     
     CrossSecMax(:,:) = 0d0
     CrossSec(:,:) = 0d0
-        
+
+    if( Process.eq.0 .or. Process.eq.1 .or. Process.eq.2 ) call vegas1(EvalWeighted,VG_Result,VG_Error,VG_Chi2)
 !     if( Process.eq.80 ) call vegas(EvalWeighted_TTBH,VG_Result,VG_Error,VG_Chi2) ! adjust to LHE format
 !     if( Process.eq.90 ) call vegas(EvalWeighted_BBBH,VG_Result,VG_Error,VG_Chi2)
     if( Process.eq.60 ) call vegas1(EvalWeighted_HJJ,VG_Result,VG_Error,VG_Chi2)
-!     if( Process.eq.66 ) call vegas(EvalWeighted_HJJ_fulldecay,VG_Result,VG_Error,VG_Chi2)
+    if( Process.eq.66 ) call vegas1(EvalWeighted_HJJ_fulldecay,VG_Result,VG_Error,VG_Chi2)
     if( Process.eq.61 ) call vegas1(EvalWeighted_HJJ,VG_Result,VG_Error,VG_Chi2)
 !     if( Process.eq.110) call vegas(EvalWeighted_TH,VG_Result,VG_Error,VG_Chi2)
 !     if( Process.eq.111) call vegas(EvalWeighted_TH,VG_Result,VG_Error,VG_Chi2)    
@@ -1423,8 +1673,9 @@ if( UseBetaVersion ) then
     call vegas_get_calls(calls1)
     CrossSec(:,:) = CrossSec(:,:)/dble(itmx)    
     write(io_stdout,"(A)")  ""
-    write(io_stdout,"(2X,A,F10.3,A,F10.3,A,F10.3)") "Total xsec: ",VG_Result, " +/-",VG_Error, " fb    vs.",sum(CrossSec(:,:))
+    write(io_stdout,*) "Total xsec: ",VG_Result, " +/-",VG_Error, " fb    vs.",sum(CrossSec(:,:))
     call InitOutput(VG_Result, VG_Error)
+
 
     RequEvents(:,:)=0
     do i1=-5,5
@@ -1435,11 +1686,14 @@ if( UseBetaVersion ) then
 
 
 
-    if( Process.eq.60 ) then
+    if( Process.eq.0 .or. Process.eq.1 .or. Process.eq.2) then
+       call get_PPXchannelHash(ijSel)
+    elseif( Process.eq.60 ) then
        call get_VBFchannelHash(ijSel)
-    else
-!        call get_GENchannelHash(ijSel)
+    elseif( Process.eq.61 ) then
        call get_HJJchannelHash(ijSel)
+    else
+       call get_GENchannelHash(ijSel)
     endif
 ! do i=1,121
 !          i1 = ijSel(i,1)
@@ -1487,12 +1741,13 @@ if( UseBetaVersion ) then
       
     
     write(io_stdout,"(A)")  ""
-    write(io_stdout,"(1X,A)")  "Event generation"
+    write(io_stdout,"(2X,A)")  "Event generation"
     call ClearHisto()   
     warmup = .false.
     itmx = 1
 !     nprn = 0  
     EvalCounter = 0
+    Br_counter(:,:) = 0
     RejeCounter = 0
     AlertCounter = 0
     AccepCounter_part(:,:) = 0 
@@ -1503,33 +1758,34 @@ if( UseBetaVersion ) then
     
 
     itmx=200000
-    ncall= 1000000
+    ncall= VegasNc0/10
     call vegas_get_calls(calls2)
     calls_rescale = calls1/calls2
     CrossSecMax(:,:) = CrossSecMax(:,:) * calls_rescale    
 
     
 !     do while( StatusPercent.lt.100d0  )
+        if( Process.eq.0 .or. Process.eq.1 .or. Process.eq.2 ) call vegas1(EvalWeighted,VG_Result,VG_Error,VG_Chi2)
 !         if( Process.eq.80 ) call vegas1(EvalWeighted_TTBH,VG_Result,VG_Error,VG_Chi2)! adjust to LHE format
     !     if( Process.eq.90 ) call vegas1(EvalWeighted_BBBH,VG_Result,VG_Error,VG_Chi2)
         if( Process.eq.60 ) call vegas1(EvalWeighted_HJJ,VG_Result,VG_Error,VG_Chi2)
-    !     if( Process.eq.66 ) call vegas1(EvalWeighted_HJJ_fulldecay,VG_Result,VG_Error,VG_Chi2)
+        if( Process.eq.66 ) call vegas1(EvalWeighted_HJJ_fulldecay,VG_Result,VG_Error,VG_Chi2)
         if( Process.eq.61 ) call vegas1(EvalWeighted_HJJ,VG_Result,VG_Error,VG_Chi2)
 !         if( Process.eq.110) call vegas1(EvalWeighted_TH,VG_Result,VG_Error,VG_Chi2)
 !         if( Process.eq.111) call vegas1(EvalWeighted_TH,VG_Result,VG_Error,VG_Chi2)      
 !         if( Process.eq.112) call vegas1(EvalWeighted_TH,VG_Result,VG_Error,VG_Chi2)      
 !         if( Process.eq.113) call vegas1(EvalWeighted_TH,VG_Result,VG_Error,VG_Chi2)      
-        call system('clear')
-        write(io_stdout,*) ""
-        do i1=-5,5
-        do j1=-5,5
-            if( RequEvents(i1,j1).gt.0 ) then 
-!                write(io_stdout,"(1X,A,I4,I4,2X,I7,2X,I7,2X,F8.3,1X,A)") "Generated events ", i1,j1,(AccepCounter_part(i1,j1)),(RequEvents(i1,j1)),dble(AccepCounter_part(i1,j1))/dble(RequEvents(i1,j1))*100d0,"%"
-               call PrintStatusBar2(int(dble(AccepCounter_part(i1,j1))/(dble(RequEvents(i1,j1)))*100),"channel "//getLHEParticle(i1)//" "//getLHEParticle(j1)//" ")
-            endif   
-        enddo
-        enddo  
-        StatusPercent = int(100d0*dble(sum(AccepCounter_part(:,:)))/dble(sum(RequEvents(:,:)))  )   
+!         call system('clear')
+!         write(io_stdout,*) ""
+!         do i1=-5,5
+!         do j1=-5,5
+!             if( RequEvents(i1,j1).gt.0 ) then 
+! !                write(io_stdout,"(1X,A,I4,I4,2X,I7,2X,I7,2X,F8.3,1X,A)") "Generated events ", i1,j1,(AccepCounter_part(i1,j1)),(RequEvents(i1,j1)),dble(AccepCounter_part(i1,j1))/dble(RequEvents(i1,j1))*100d0,"%"
+!                call PrintStatusBar2(int(dble(AccepCounter_part(i1,j1))/(dble(RequEvents(i1,j1)))*100),"channel "//getLHEParticle(i1)//" "//getLHEParticle(j1)//" ")
+!             endif   
+!         enddo
+!         enddo  
+!         StatusPercent = int(100d0*dble(sum(AccepCounter_part(:,:)))/dble(sum(RequEvents(:,:)))  )   
 !     enddo
     call cpu_time(time_end)  
     
@@ -1542,6 +1798,32 @@ if( UseBetaVersion ) then
     endif
     write(io_stdout,*)  " event generation rate (events/sec)",dble(sum(AccepCounter_part(:,:)))/(time_end-time_start+1d-10)
 
+
+
+
+    if( Process.eq.0 .or. Process.eq.1 .or. Process.eq.2 ) then
+          write(*,*) ""
+          write(*,"(A)") "                 el              mu             tau             neu              jet"
+          write(*,"(A,5F16.4)") " el ",dble(Br_counter(1,1:5))/dble(AccepCounter)
+          write(*,"(A,5F16.4)") " mu ",dble(Br_counter(2,1:5))/dble(AccepCounter)
+          write(*,"(A,5F16.4)") " tau",dble(Br_counter(3,1:5))/dble(AccepCounter)
+          write(*,"(A,5F16.4)") " neu",dble(Br_counter(4,1:5))/dble(AccepCounter)
+          write(*,"(A,5F16.4)") " jet",dble(Br_counter(5,1:5))/dble(AccepCounter)
+          write(*,*) ""
+          write(*,"(A,5F16.3)") "llll: ",(dble(Br_counter(1,1))+dble(Br_counter(2,2))+dble(Br_counter(3,3)))/dble(AccepCounter)
+          write(*,"(A,5F16.3)") "llLL: ",(dble(Br_counter(1,2))+dble(Br_counter(1,3))+  &
+                                          dble(Br_counter(2,1))+dble(Br_counter(2,3))+  &
+                                          dble(Br_counter(3,1))+dble(Br_counter(3,2)))/dble(AccepCounter)
+          write(*,"(A,5F16.3)") "2l2q: ",(dble(Br_counter(1,5))+dble(Br_counter(2,5))+dble(Br_counter(3,5))+  &
+                                          dble(Br_counter(5,1))+dble(Br_counter(5,2))+dble(Br_counter(5,3)) )/dble(AccepCounter)
+            
+          write(*,"(A,5F16.3)") "4l/2q2l: ",(dble(Br_counter(1,2))+dble(Br_counter(1,3))+ dble(Br_counter(1,1))+dble(Br_counter(2,2))+dble(Br_counter(3,3)) &
+                                        + dble(Br_counter(2,1))+dble(Br_counter(2,3))+   &
+                                          dble(Br_counter(3,1))+dble(Br_counter(3,2)))/  &
+                                          (dble(Br_counter(1,5))+dble(Br_counter(2,5))+dble(Br_counter(3,5))+  &
+                                          dble(Br_counter(5,1))+dble(Br_counter(5,2))+dble(Br_counter(5,3)) )
+    endif
+  
     
 
 
@@ -1817,6 +2099,30 @@ integer :: i, j, stat
                endif
         endif
 
+        !Read the generated mass shape for reweighting, POWHEG only
+        if (FirstLines(1:7).eq."bwshape") then
+            i = 8
+            do while(FirstLines(i:i).eq." ")
+                i = i+1
+            enddo
+            do while(FirstLines(i:i).ne." ")
+                i = i+1
+            enddo
+            read(FirstLines(8:i),*) j
+            if( WidthSchemeIn.gt.0 .and. j.ne.WidthSchemeIn ) then
+                print *, "WidthSchemeIn is specified to be ", WidthSchemeIn, " but the LHE file says:"
+                print *, FirstLines
+                stop 1
+            elseif( WidthScheme.gt.0 .and. WidthSchemeIn.le.0 .and. j.ne.WidthScheme ) then
+                print *, "WidthScheme is specified to be ", WidthScheme, " but the LHE file says:"
+                print *, FirstLines
+                print "(A,I1,A,I1,A,I1,A,I1)", "If you want to reweight the propagator from ", j, " to ", WidthScheme, " please specify WidthSchemeIn=", j, " WidthScheme=", WidthScheme
+                stop 1
+            endif
+            if( WidthScheme.lt.0 ) read(FirstLines(8:i),*) WidthScheme
+            if( WidthSchemeIn.lt.0 ) read(FirstLines(8:i),*) WidthSchemeIn
+        endif
+
         if( Index(FirstLines, "<event").ne.0 ) FirstEvent=.true.
      enddo
 99   continue
@@ -1894,14 +2200,15 @@ END SUBROUTINE
 SUBROUTINE StartReadLHE_NEW(VG_Result,VG_Error)
 use ModCrossSection
 use ModKinematics
-use ModParameters
 use ModMisc
+use ModParameters
+use ModPMZZ
 implicit none
 include 'csmaxvalue.f'
 integer,parameter :: maxpart=30!=max.part particles in LHE file; this parameter should match the one in WriteOutEvent of mod_Kinematics
 real(8) :: VG_Result,VG_Error,VG_Chi2
 real(8) :: yRnd(1:22),Res,EMcheck(1:4),DecayWeight,DecayWidth,DecayWidth0
-real(8) :: HiggsDK_Mom(1:4,1:13),Ehat,GetMZZProbability
+real(8) :: HiggsDK_Mom(1:4,1:13),Ehat
 real(8) :: MomExt(1:4,1:maxpart),MomHiggs(1:4),Mass(1:maxpart),pH2sq
 integer :: tries, nParticle,  ICOLUP(1:2,1:7+maxpart),LHE_IntExt(1:7+maxpart),HiggsDK_IDUP(1:13),HiggsDK_ICOLUP(1:2,1:13)
 character(len=150) :: InputFmt0,InputFmt1
@@ -1913,7 +2220,6 @@ character(len=160) :: OtherLines
 character(len=160) :: EventLine(0:maxpart)
 integer :: n,stat,iHiggs,VegasSeed,AccepLastPrinted
 character(len=100) :: BeginEventLine
-integer,parameter :: PMZZcalls = 200000
 logical :: Empty
 
 
@@ -1925,12 +2231,11 @@ AccepLastPrinted = 0
 
 call InitReadLHE(BeginEventLine)
 
-     if( TauDecays.lt.0 .and. ReweightDecay ) then
-        print *, " finding P_H4l(m_Reso) with ",1000000," points" 
-        DecayWidth0 = GetMZZProbability(m_Reso,1000000)
-     else
-        DecayWidth0 = 1
+     if( ReweightDecay ) then
+         print *, " finding P_decay(m4l) distribution with ", PMZZEvals, " calls per point"
+         call InitMZZdistribution()
      endif
+     DecayWidth0 = GetMZZProbability(M_Reso,-1d0,.true.)
 
      print *, " finding maximal weight for mZZ=mReso with ",VegasNc0," points"
      VG = zero
@@ -2005,15 +2310,11 @@ call InitReadLHE(BeginEventLine)
 !         accept/reject sampling for H->VV decay contribution
           EHat = pH2sq
           DecayWeight = 0d0
-          if( TauDecays.lt.0 ) then
           
-                if( ReweightDecay ) then
-                    DecayWidth = GetMZZProbability(EHat,PMZZcalls)!  could also be used to determine csmax for this particular event to improve efficiency (-->future work)
-                else
-                    DecayWidth = 1
-                endif
-                WeightScaleAqedAqcd(1) = WeightScaleAqedAqcd(1) *   DecayWidth/DecayWidth0
-                
+          DecayWidth = GetMZZProbability(EHat,-1d0,.true.)!  could also be used to determine csmax for this particular event to improve efficiency (-->future work)
+          WeightScaleAqedAqcd(1) = WeightScaleAqedAqcd(1) * DecayWidth/DecayWidth0
+
+          if( TauDecays.lt.0 ) then
                 do tries=1,5000000
                     call random_number(yRnd)
                     DecayWeight = EvalUnWeighted_DecayToVV(yRnd,.true.,EHat,Res,HiggsDK_Mom(1:4,6:9),HiggsDK_IDUP(1:9),HiggsDK_ICOLUP(1:2,1:9))
@@ -2541,66 +2842,6 @@ call InitReadLHE(BeginEventLine)
 
 RETURN
 END SUBROUTINE
-
-
-
-
-
-SUBROUTINE GetMZZdistribution()
-use ModCrossSection
-use ModParameters
-implicit none
-real(8) :: DecayWeight,DecayWidth,DecayWidth0
-real(8) :: Ehat,GetMZZProbability
-integer :: nscan
-integer,parameter :: nmax=20, Ncalls=200000
-real(8),parameter :: ScanRange=120d0*GeV
-
-
-
-  DecayWidth0 = GetMZZProbability(M_Reso,Ncalls)
-  
-  do nscan=-nmax,+nmax,1
-     
-     EHat = M_Reso+ScanRange*nscan/dble(nmax)
-     DecayWidth = GetMZZProbability(EHat,Ncalls)
-     write(*,"(1F10.5,1PE16.9)") EHat*100d0,DecayWidth/DecayWidth0
-     
-  enddo
-
-RETURN
-END SUBROUTINE
-
-
-
-
-
-
-FUNCTION GetMZZProbability(EHat,Ncalls)
-use ModCrossSection
-use ModParameters
-implicit none
-real(8) :: DecayWeight,yRnd(1:22),Res,GetMZZProbability
-real(8) :: HiggsDK_Mom(1:4,1:13),Ehat
-integer :: HiggsDK_IDUP(1:13),HiggsDK_ICOLUP(1:2,1:13)
-integer :: evals,Ncalls
-integer,parameter :: nmax=20
-real(8),parameter :: ScanRange=120d0*GeV
-
-
-     GetMZZProbability = 0d0     
-     do evals=1,Ncalls
-         call random_number(yRnd)
-         DecayWeight = EvalUnWeighted_DecayToVV(yRnd,.false.,EHat,Res,HiggsDK_Mom(1:4,6:9),HiggsDK_IDUP(1:9),HiggsDK_ICOLUP)
-         GetMZZProbability = GetMZZProbability + DecayWeight
-     enddo
-     GetMZZProbability = GetMZZProbability/dble(evals)
-    
-
-RETURN
-END FUNCTION
-
-
 
 
 
@@ -3305,7 +3546,8 @@ implicit none
 integer :: AllocStatus,NHisto
 
           it_sav = 1
-          NumHistograms = 7
+          NumHistograms =  45!   9;     
+print *, "extending no. of histograms for vbf tests"
           if( .not.allocated(Histo) ) then
                 allocate( Histo(1:NumHistograms), stat=AllocStatus  )
                 if( AllocStatus .ne. 0 ) call Error("Memory allocation in Histo")
@@ -3340,6 +3582,7 @@ integer :: AllocStatus,NHisto
           Histo(5)%BinSize= 0.2d0
           Histo(5)%LowVal = -5d0
           Histo(5)%SetScale= 1d0
+          
           Histo(6)%Info   = "y(j1)"
           Histo(6)%NBins  = 50
           Histo(6)%BinSize= 0.2d0
@@ -3352,11 +3595,25 @@ integer :: AllocStatus,NHisto
           Histo(7)%LowVal = -5d0
           Histo(7)%SetScale= 1d0
           
-!           Histo(6)%Info   = "m_4l"
-!           Histo(6)%NBins  = 50
-!           Histo(6)%BinSize= 10d0*GeV
-!           Histo(6)%LowVal = 120d0*GeV
-!           Histo(6)%SetScale= 1d0/GeV
+          Histo(8)%Info   = "m_4l"
+          Histo(8)%NBins  = 50
+          Histo(8)%BinSize= 10d0*GeV
+          Histo(8)%LowVal = 120d0*GeV
+          Histo(8)%SetScale= 1d0/GeV
+
+          Histo(9)%Info   = "Phi1"  ! angle between plane of beam-scatterin axis and the lepton plane of Z1 in the resonance rest frame
+          Histo(9)%NBins  = 40
+          Histo(9)%BinSize= 0.078539d0 *2d0
+          Histo(9)%LowVal =-3.14159d0
+          Histo(9)%SetScale= 1d0
+
+do NHisto=10,45
+          Histo(NHisto)%Info   = "sij"
+          Histo(NHisto)%NBins  = 200
+          Histo(NHisto)%BinSize= 2d0*GeV
+          Histo(NHisto)%LowVal = 0d0*GeV
+          Histo(NHisto)%SetScale= 1d0/GeV
+enddo
 ! 
 !           Histo(7)%Info   = "weights"
 !           Histo(7)%NBins  = 50
@@ -3472,7 +3729,75 @@ SUBROUTINE InitOutput(CrossSection, CrossSectionError)
 use ModParameters
 implicit none
 
+integer :: exitstatus
+integer :: incoming1, incoming2
+real(8) :: beamenergy1, beamenergy2
+integer :: pdfgup1, pdfgup2, pdfsup1, pdfsup2  !pdfgup is outdated, set to 0.  pdfsup = LHAGLUE code
+integer :: weightscheme, nprocesses
 real(8) :: CrossSection, CrossSectionError
+character(len=500) :: ReadLines
+integer :: stat
+
+    if( Collider.eq.0 ) then
+        incoming1 = -11
+        incoming2 = 11
+    else
+        incoming1=2212
+        incoming2=2212
+    endif
+    beamenergy1 = Collider_Energy/GeV / 2d0
+    beamenergy2 = Collider_Energy/GeV / 2d0
+    pdfgup1 = 0
+    pdfgup2 = 0
+    if( Collider.eq.0 ) then
+        pdfsup1 = 0
+        pdfsup2 = 0
+    else
+#if useLHAPDF==1
+        !temporary fix, this seems to be the only way
+        !email from Andy Buckley:
+        !  Hi,
+        !  The Fortran interface was originally written in the era when PDFs could *only* be accessed by number rather than name. Accordingly it doesn't provide a way to look up the ID code, because it expects that you need to have known it in advance!
+        !  We can add an ID-lookup function in the "new" Fortran interface for the next version, but I think for now this information isn't available other than through the C++ and Python APIs.
+        !  Andy
+        open(unit=io_LHEInFile,file=trim(LHAPDF_DATA_PATH)//"/"//LHAPDFString,form='formatted',access= 'sequential',status='old')
+        pdfsup1 = -999
+        do while( pdfsup1.lt.0 )
+            read(16,fmt="(A160)",IOSTAT=stat,END=99) ReadLines
+            if( ReadLines(1:8).eq."SetIndex" ) then
+                read(ReadLines(10:500),*) pdfsup1
+                pdfsup1 = pdfsup1 + LHAPDFMember
+                exit
+            endif
+        enddo
+99      CONTINUE
+        if( pdfsup1.lt.0 ) then
+            print *, "Error: couldn't get the PDF set index.  Writing 0."
+            pdfsup2 = 0
+        endif
+        pdfsup2 = pdfsup1
+#else
+        if( PDFSet.eq.1 ) then
+            pdfsup1 = 10042
+            pdfsup2 = 10042
+        elseif( PDFSet.eq.2 ) then
+            pdfsup1 = 21000
+            pdfsup2 = 21000
+        elseif( PDFSet.ge.201.and.PDFSet.le.240 ) then !21041-21080
+            pdfsup1 = 21040 + PDFSet - 200
+            pdfsup2 = 21040 + PDFSet - 200
+        elseif( PDFSet.eq.3 ) then
+            pdfsup1 = 263000
+            pdfsup2 = 263000
+        endif
+#endif
+    endif
+    if( .not.unweighted ) then
+        weightscheme = 4
+    else
+        weightscheme = 3
+    endif
+    nprocesses = 1
 
     if( (unweighted) .or. ( (.not.unweighted) .and. (writeWeightedLHE) )  ) then 
         if ( .not. ReadLHEFile .and. .not. ConvertLHEFile ) then
@@ -3481,6 +3806,19 @@ real(8) :: CrossSection, CrossSectionError
         write(io_LHEOutFile ,'(A)') '<!--'
         write(io_LHEOutFile ,'(A,A6,A)') 'Output from the JHUGenerator ',trim(JHUGen_Version),' described in arXiv:1001.3396 [hep-ph],arXiv:1208.4018 [hep-ph],arXiv:1309.4819 [hep-ph]'
 
+        if( writegit ) then
+            write(io_LHEOutFile,'(A)') ""
+            write(io_LHEOutFile,'(A)') "Current git commit:"
+            close(io_LHEOutFile)
+            call system("git rev-parse HEAD >> "//trim(DataFile)//".lhe")
+            call system("! git diff --name-only | grep .", exitstatus)
+            if( exitstatus.ne.0 ) then
+                print *, "can't write git commit to the lhe file with a dirty working tree!"
+                stop 1
+            endif
+            open(unit=io_LHEOutFile,file=trim(DataFile)//'.lhe',form='formatted',access='append',status='old')
+            write(io_LHEOutFile,'(A)') ""
+        endif
         call WriteParameters(io_LHEOutFile)
 
         if( (ReadLHEFile .or. ConvertLHEFile) .and. (importExternal_LHEinit) ) then
@@ -3488,19 +3826,7 @@ real(8) :: CrossSection, CrossSectionError
         else
             write(io_LHEOutFile ,'(A)') '-->'
             write(io_LHEOutFile ,'(A)') '<init>'
-            if( (.not.unweighted) .and. (writeWeightedLHE) ) then
-              if(Collider.eq.0)then
-                write(io_LHEOutFile ,'(A,2F24.16,A)') ' -11   11',(Collider_Energy*50d0),(Collider_Energy*50d0),' 0 0     0     0 4  1' 
-              else
-                write(io_LHEOutFile ,'(A,2F24.16,A)') '2212 2212',(Collider_Energy*50d0),(Collider_Energy*50d0),' 0 0 10042 10042 4  1' 
-              endif
-            else
-              if(Collider.eq.0)then
-                write(io_LHEOutFile ,'(A,2F24.16,A)') ' -11   11',(Collider_Energy*50d0),(Collider_Energy*50d0),' 0 0     0     0 3  1' 
-              else
-                write(io_LHEOutFile ,'(A,2F24.16,A)') '2212 2212',(Collider_Energy*50d0),(Collider_Energy*50d0),' 0 0 10042 10042 3  1' 
-              endif
-            endif
+            write(io_LHEOutFile ,'(I4,X,I4,F24.16,X,F24.16,X,I1,X,I1,X,I7,X,I7,X,I2,X,I2)') incoming1, incoming2, beamenergy1, beamenergy2, pdfgup1, pdfgup2, pdfsup1, pdfsup2, weightscheme, nprocesses
 ! in order of appearance:  (see also http://arxiv.org/abs/hep-ph/0109068 and http://arxiv.org/abs/hep-ph/0609017)
 ! (*) incoming particle1 (2212=proton), incoming particle2, 
 ! (*) energies of colliding particles, 
@@ -3608,7 +3934,7 @@ character :: arg*(500)
         write(TheUnit,"(12X,A,F8.2,A)") "pT >= ", pTjetcut/GeV, " GeV"
         if( Process.eq.60 .or. Process.eq.61 .or. Process.eq.80 .or. Process.eq.90) then
             write(TheUnit,"(8X,A,F8.2)") "DeltaR >= ", Rjet
-            write(TheUnit,"(11X,A,F8.2,A)") "mJJ >= ", mJJcut, " GeV"
+            write(TheUnit,"(11X,A,F8.2,A)") "mJJ >= ", mJJcut/GeV, " GeV"
         endif
     endif
     if( (ReadLHEFile) .and. (RequestNLeptons.gt.0) ) then
@@ -3653,7 +3979,17 @@ character :: arg*(500)
     if( CountTauAsAny .and. RequestOSSF.gt.0 ) then
         write(TheUnit,"(8X,A)") "(counting tau in place of e or mu of the same sign, if necessary)"
     endif
-    write(TheUnit,"(4X,A,20I11)") "Random seeds: ",TheSeeds(1:TheSeeds(0))
+    write(TheUnit,"(4X,A,20I11)") "Random seed: ",UserSeed
+    write(TheUnit,"(4X,A)") "To reproduce results using this seed, JHUGen should be compiled with the same compiler:"
+#if compiler==1
+    if( modulo(__INTEL_COMPILER, 10) == 0 ) then !last digit is 0, e.g. 1110.  ifort --version writes this as 11.1, not 11.10
+        write(TheUnit,"(6X,A,I2,A,I1,A,I8)") "ifort (IFORT) ", __INTEL_COMPILER/100, ".", modulo(__INTEL_COMPILER, 100)/10, " ", __INTEL_COMPILER_BUILD_DATE
+    else
+        write(TheUnit,"(6X,A,I2,A,I2,A,I8)") "ifort (IFORT) ", __INTEL_COMPILER/100, ".", modulo(__INTEL_COMPILER, 100), " ", __INTEL_COMPILER_BUILD_DATE
+    endif
+#elif compiler==2
+    write(TheUnit,"(6X,A,A)") "GNU Fortran (GCC) ", __VERSION__
+#endif
 
     if( .not. (ReadLHEFile .or. ConvertLHEFile) ) then
         write(TheUnit,"(4X,A)") ""
@@ -3663,14 +3999,18 @@ character :: arg*(500)
 #if useLHAPDF==1
         write(TheUnit,"(4X,A,A,A,I3)") "LHAPDF set ",trim(LHAPDFString), ", member=",LHAPDFMember
 #else
-        write(TheUnit,"(4X,A,I1)") "PDFSet: ",PDFSet
+        write(TheUnit,"(4X,A,I3)") "PDFSet: ",PDFSet
 #endif
         write(TheUnit,"(4X,A,L)") "Unweighted: ",Unweighted
     endif
+    if( WidthScheme.ne.WidthSchemeIn ) then
+        write(TheUnit,"(4X,A,I1,A,I1)") "Reweighting propagator from WidthScheme ", WidthSchemeIn, " to WidthScheme ", WidthScheme
+    endif
+    if( ReweightDecay ) then
+        write(TheUnit,"(4X,A,I1)") "Reweighting events using the decay matrix element, using input WidthScheme ", WidthSchemeIn
+    endif
     if( Process.le.2 .or. ReadLHEFile ) write(TheUnit,"(4X,A,L)") "Interference: ",includeInterference
     if( (Process.le.2 .or. ReadLHEFile) .and. (IsAZDecay(DecayMode1) .or. IsAZDecay(DecayMode2))  ) write(TheUnit,"(4X,A,L)") "Intermediate off-shell photons: ",includeGammaStar
-
-    if( .not. seed_random ) write(TheUnit,"(4X,A)") "NOTE: seed_random==FALSE (switched off)"
 
     write(TheUnit,"(4X,A)") ""
     if( Process.eq.0 .or. Process.eq.60 .or. Process.eq.61 .or. Process.eq.62 .or. Process.eq.66 .or. Process.eq.50 ) then
@@ -3691,13 +4031,20 @@ character :: arg*(500)
             write(TheUnit,"(6X,A,2E16.8,A1)") "ghz2=",ghz2,"i"
             write(TheUnit,"(6X,A,2E16.8,A1)") "ghz3=",ghz3,"i"
             write(TheUnit,"(6X,A,2E16.8,A1)") "ghz4=",ghz4,"i"
-            if( (includeGammaStar .and. ((IsAZDecay(DecayMode1)) .or. (IsAZDecay(DecayMode2)))) ) then
-                write(TheUnit,"(6X,A,2E16.8,A1)") "ghzgs2=",ghzgs2,"i"
-                write(TheUnit,"(6X,A,2E16.8,A1)") "ghzgs3=",ghzgs3,"i"
-                write(TheUnit,"(6X,A,2E16.8,A1)") "ghzgs4=",ghzgs4,"i"
-                write(TheUnit,"(6X,A,2E16.8,A1)") "ghgsgs2=",ghgsgs2,"i"
-                write(TheUnit,"(6X,A,2E16.8,A1)") "ghgsgs3=",ghgsgs3,"i"
-                write(TheUnit,"(6X,A,2E16.8,A1)") "ghgsgs4=",ghgsgs4,"i"
+            if( includeGammaStar .or. IsAPhoton(DecayMode2) ) then
+                if( includeGammaStar .or. IsAZDecay(DecayMode1) ) then
+                    write(TheUnit,"(6X,A,2E16.8,A1)") "ghzgs2=",ghzgs2,"i"
+                    write(TheUnit,"(6X,A,2E16.8,A1)") "ghzgs3=",ghzgs3,"i"
+                    write(TheUnit,"(6X,A,2E16.8,A1)") "ghzgs4=",ghzgs4,"i"
+                endif
+                if( includeGammaStar .or. IsAPhoton(DecayMode1) ) then
+                    write(TheUnit,"(6X,A,2E16.8,A1)") "ghgsgs2=",ghgsgs2,"i"
+                    write(TheUnit,"(6X,A,2E16.8,A1)") "ghgsgs3=",ghgsgs3,"i"
+                    write(TheUnit,"(6X,A,2E16.8,A1)") "ghgsgs4=",ghgsgs4,"i"
+                endif
+                if( includeGammaStar) then
+                    write(TheUnit,"(6X,A,F8.2,A)") "m(gammastar) >= ", MPhotonCutoff/GeV, " GeV"
+                endif
             endif
             if( cdabs(ghz1_prime ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz1_prime= ",ghz1_prime ,"i,","Lambda_z1=",Lambda_z1*100d0
             if( cdabs(ghz1_prime2).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz1_prime2=",ghz1_prime2,"i,","Lambda_z1=",Lambda_z1*100d0
@@ -3827,18 +4174,20 @@ END SUBROUTINE
 
 
 
-! if seed_random=true:  "Seeds" returns the seeds chosen according to system clock
-! is seed_random=false: "Seeds" is used as input for initializing the random number generator
-SUBROUTINE InitRandomSeed(Seeds)
+SUBROUTINE InitRandomSeed()
 use modParameters
 use modMisc
+#if compiler==1
+use ifport   !needed for getpid()
+#endif
 implicit none
-integer :: Seeds(0:20)
 integer, dimension(:), allocatable :: gen_seed
-integer :: n,i,sclock,SeedSize
+integer :: n,i,sclock
+real :: tmp_real, tmp_real2
+logical :: finished
 
 
-    if (seed_random) then 
+    if (UserSeed.eq.0) then
 #if compiler==1
         call random_seed()
 #elif compiler==2
@@ -3849,14 +4198,41 @@ integer :: n,i,sclock,SeedSize
         call random_seed(put = gen_seed)
         deallocate(gen_seed)
 #endif
-        call random_seed(size=SeedSize)
-        Seeds(0) = SeedSize
-        call random_seed(get=Seeds(1:SeedSize))
-    else        
-        call random_seed(size=n)
-        if( n.ne.Seeds(0) ) call Error("Number of input seeds does not match random_seed(size=n)",n)
-        call random_seed(put = Seeds(1:n))
+        call random_number(tmp_real)
+        UserSeed = floor(tmp_real * 1000000000.)
+        UserSeed = UserSeed + getpid()
     endif
+
+    call random_seed(size=n)
+    if( n.gt.nmaxseeds ) then
+        print *, "Your compiler wants ", n, " seeds, but nmaxseeds=", nmaxseeds
+        print *, "Try changing nmaxseeds and adding to DefaultSeeds (both in mod_Parameters)"
+        stop 1
+    endif
+
+    call random_seed(put = DefaultSeeds(1:n))
+    call random_number(tmp_real)
+    do i=1,n   !Sometimes not all of the seeds requested matter.  Put UserSeed in place of the first one that does
+        TheSeeds = DefaultSeeds
+        TheSeeds(i) = UserSeed
+        call random_seed(put = TheSeeds(1:n))
+        call random_number(tmp_real2)
+        if( abs(tmp_real2-tmp_real).ge.0.001 ) then
+            exit
+        endif
+    enddo
+    if( abs(tmp_real2-tmp_real).lt.0.001 ) then
+        print *, "Fatal error: the random seed doesn't seem to make a difference!?!?"
+        stop 1
+    endif
+
+    allocate(gen_seed(n))
+    do i=1,n
+        call random_number(tmp_real)
+        gen_seed(i) = floor(tmp_real * 1000000000.)
+    enddo
+    call random_seed(put = gen_seed)
+    deallocate(gen_seed)
 
 return
 END SUBROUTINE
@@ -3965,12 +4341,13 @@ implicit none
         write(io_stdout,"(4X,A)") "TauDK:      decay mode for taus in H->tautau, 0=stable, 1=decaying (use DecayMode1/2 = 4,5 for W+/W-"
         write(io_stdout,"(4X,A)") "BotDK:      decay mode for bottom quarks in H->bbar, 0=deactivated, 1=activated"
         write(io_stdout,"(4X,A)") "PChannel:   0=g+g, 1=q+qb, 2=both"
-        write(io_stdout,"(4X,A)") "OffXVV:     off-shell option for resonance(X),or vector bosons(VV)"
-        write(io_stdout,"(4X,A)") "WidthScheme:0=fixed width, 1=running width, 2=complex pole scheme"
-        write(io_stdout,"(4X,A)") "PDFSet:     1=CTEQ6L1(default), 2=MSTW2008LO,  2xx=MSTW with eigenvector set xx=01..40), 3=NNPDF3.0LO"
+        write(io_stdout,"(4X,A)") "OffshellX:     Off-shellness option for resonance (X)"
+        write(io_stdout,"(4X,A)") "WidthScheme:1=running width, 2=fixed width (default), 3=complex pole scheme"
 #if useLHAPDF==1
         write(io_stdout,"(4X,A)") "LHAPDF:     name of the LHA PDF file, e.g. NNPDF30_lo_as_0130/NNPDF30_lo_as_0130.info"
         write(io_stdout,"(4X,A)") "LHAPDFMem:  member PDF number, default=0 (best fit)"
+#else
+        write(io_stdout,"(4X,A)") "PDFSet:     1=CTEQ6L1(default), 2=MSTW2008LO,  2xx=MSTW with eigenvector set xx=01..40), 3=NNPDF3.0LO"
 #endif        
         write(io_stdout,"(4X,A)") "VegasNc0:   number of evaluations for integrand scan"
         write(io_stdout,"(4X,A)") "VegasNc1:   number of evaluations for accept-reject sampling"
