@@ -5,10 +5,10 @@ implicit none
 private
 
    real(dp), private, parameter :: tol = 0.00000010_dp
-   real(8), parameter :: T3_nulep(1:2)= (/ 0.5d0, -0.5d0 /)
-   real(8), parameter :: T3_ud(1:2)= (/ 0.5d0, -0.5d0 /)
-   real(8), parameter :: Q_nulep(1:2)= (/ 0d0, -1d0 /)
-   real(8), parameter :: Q_ud(1:2)= (/ 0.66666666666666666666666666667d0, -0.33333333333333333333333333333d0 /)
+   real(8), parameter :: T3_nulep(1:2) = (/ 0.5d0, -0.5d0 /)
+   real(8), parameter :: T3_ud(1:2) = (/ 0.5d0, -0.5d0 /)
+   real(8), parameter :: Q_nulep(1:2) = (/ 0d0, -1d0 /)
+   real(8), parameter :: Q_ud(1:2) = (/ 0.66666666666666666666666666667d0, -0.33333333333333333333333333333d0 /)
    real(8), parameter :: xw = sitW**2
    real(8), parameter :: cw = dsqrt(1d0-xw)
    real(8), parameter :: eA = dsqrt(4d0*pi*alpha_QED)
@@ -18,8 +18,8 @@ private
    integer, parameter :: isW=1,isZ=2,isA=0 ! W+:1,W-:-1,Z:2,A:0
 
    ! Temporary parameters
-   logical, parameter :: doSignal=.true.
-   logical, parameter :: doBkg=.true.
+   logical, parameter :: doSignal = .true.
+   logical, parameter :: doBkg = .true.
 
    type :: VACurrent
       ! Inputs to store
@@ -34,6 +34,7 @@ private
       complex(dp) :: current(1:4)
       complex(dp) :: prop ! ScalarPropagator
       complex(dp) :: propcurrent(1:4) ! VertexPropagator
+
       contains
          procedure :: init_VACurrent
    end type
@@ -41,6 +42,21 @@ private
    type :: Single4VDiagram
       type(VACurrent) :: VCurrent(1:4)
       type(VACurrent) :: ACurrent(1:4)
+      real(dp) :: p(1:4,1:2,1:4)
+      integer :: id(1:2,1:4)
+      integer :: hel(1:4)
+      real(dp) :: permutation_factor
+
+      contains
+         procedure :: init_Single4VDiagram
+   end type
+
+   type :: ProcessTree
+      type(Single4VDiagram), dimension(:), allocatable :: Diagrams
+      integer :: nCombinations
+      contains
+         procedure :: init_Diagrams
+         !procedure :: reset_Diagrams
    end type
 
 !----- List of  subroutines
@@ -49,22 +65,270 @@ private
 
 contains
 
+SUBROUTINE NEXPER(N, A, MTC, EVEN)
+   INTEGER I,J,N,M
+   INTEGER, DIMENSION(N) :: A
+   INTEGER S, D, NM3, IA, I1, L
+   LOGICAL MTC, EVEN
+
+   IF (MTC) GOTO 10
+   NM3 = N-3
+   DO 1 I=1,N
+1     A(I)=I
+   MTC=.TRUE.
+5  EVEN=.TRUE.
+   IF(N .EQ. 1) GOTO 8
+6  IF(A(N) .NE. 1 .OR. A(1) .NE. 2+MOD(N,2)) RETURN
+   IF(N .LE. 3) GOTO 8
+   DO 7 I=1,NM3
+      IF(A(I+1) .NE. A(I)+1) RETURN
+7     CONTINUE
+8  MTC=.FALSE.
+   RETURN
+10 IF(N .EQ. 1) GOTO 27
+   IF(.NOT. EVEN) GOTO 20
+   IA=A(1)
+   A(1)=A(2)
+   A(2)=IA
+   EVEN=.FALSE.
+   GOTO 6
+20 S=0
+   DO 26 I1=2,N
+25    IA=A(I1)
+      I=I1-1
+      D=0
+      DO 30 J=1,I
+30       IF(A(J) .GT. IA) D=D+1
+      S=D+S
+      IF(D .NE. I*MOD(S,2)) GOTO 35
+26    CONTINUE
+27 A(1)=0
+   GOTO 8
+35 M=MOD(S+1,2)*(N+1)
+   DO 40 J=1,I
+      IF(ISIGN(1,A(J)-IA) .EQ. ISIGN(1,A(J)-M)) GOTO 40
+      M=A(J)
+      L=J
+40    CONTINUE
+   A(L)=IA
+   A(I1)=M
+   EVEN=.TRUE.
+   RETURN
+END SUBROUTINE NEXPER
+
 subroutine init_VACurrent(cur, p, id, hel, useA)
-class(VACurrent) :: cur
-real(dp) :: p(1:4,1:2)
-integer :: id(1:2)
-integer :: hel
-logical :: useA
+   implicit none
+   class(VACurrent) :: cur
+   real(dp), intent(in) :: p(1:4,1:2)
+   integer, intent(in) :: id(1:2)
+   integer, intent(in) :: hel
+   logical, intent(in) :: useA
+   integer :: idc(1:2)
+   logical :: isValid
 
-   cur%p=p
-   cur%id=id
-   cur%hel=hel
-   cur%pVertex(1:4)=p(1:4,1)+p(1:4,2)
-   cur%current = Vcurrent(p,id,hel,cur%idVertex,useAcoupl=useA,Ub_out=cur%Ub,V_out=cur%V)
-   cur%propcurrent = VectorPropagator(cur%idVertex,cur%pVertex,cur%current,scprop=cur%prop)
+   isValid=.false.
+   idc(1)=convertLHE(id(1))
+   idc(2)=convertLHE(id(2))
 
-return
+   if(idc(1).gt.0 .and. idc(2).lt.0) then ! f-fb
+      cur%p=p
+      cur%id=id
+      isValid=.true.
+   else if(idc(1).lt.0 .and. idc(2).gt.0) then
+      cur%p(:,1)=p(:,2)
+      cur%id(1)=id(2)
+      cur%p(:,2)=p(:,1)
+      cur%id(2)=id(1)
+      isValid=.true.
+   endif
+   if(isValid) then
+      cur%hel=hel
+      cur%pVertex(1:4)=p(1:4,1)+p(1:4,2)
+      cur%current = Vcurrent(cur%p,cur%id,cur%hel,cur%idVertex,useAcoupl=useA,Ub_out=cur%Ub,V_out=cur%V)
+      cur%propcurrent = VectorPropagator(cur%idVertex,cur%pVertex,cur%current,scprop=cur%prop)
+   else
+      cur%p(:,:)=0d0
+      cur%id(:)=Not_a_particle_
+      cur%hel=0
+      cur%idVertex=Not_a_particle_
+      cur%pVertex(:)=0d0
+      cur%Ub(:)=czero
+      cur%V(:)=czero
+      cur%current(:)=czero
+      cur%prop=czero
+      cur%propcurrent(:)=czero
+   endif
+   return
 end subroutine init_VACurrent
+
+subroutine init_Single4VDiagram(diag, ptmp, idtmp, hel, even)
+   implicit none
+   class(Single4VDiagram) :: diag
+   real(dp), intent(in) :: ptmp(1:4,1:8)
+   integer, intent(in) :: idtmp(1:8)
+   integer, intent(in) :: hel(1:4)
+   logical, intent(in) :: even
+   real(dp) :: pin(1:4,1:2)
+   integer :: idin(1:2)
+   integer :: iV, mu, ipair(1:2),j
+   logical :: useAcoupl
+
+   do iV=1,4
+      ipair(1) = iV*2-1
+      ipair(2) = iV*2
+      do j=1,2
+         pin(:,j)=ptmp(:,ipair(j))
+         idin(j)=idtmp(ipair(j))
+      enddo
+      useAcoupl=.false.
+      call diag%VCurrent(iV)%init_VACurrent(pin,idin,hel(iV),useAcoupl)
+      useAcoupl=.true.
+      call diag%ACurrent(iV)%init_VACurrent(pin,idin,hel(iV),useAcoupl)
+   enddo
+
+   if (even) then
+      diag%permutation_factor=1d0
+   else
+      diag%permutation_factor=-1d0
+   endif
+
+   return
+end subroutine init_Single4VDiagram
+
+subroutine init_Diagrams(tree,MomExt,MY_IDUP,hel,npart)
+   use ModParameters
+   use ModMisc
+   implicit none
+   class(ProcessTree) :: tree
+   integer, parameter :: nhel = 4
+   integer, intent(in) :: npart
+   real(dp), intent(in) :: MomExt(1:4,1:npart) ! Mandatory input is a fermion-antifermion pair! Does not have to be ordered
+   integer, intent(in) :: MY_IDUP(1:npart) ! Mandatory input is a fermion-antifermion pair! Does not have to be ordered
+   integer, intent(in) :: hel(1:nhel)
+   integer :: idf(1:4),idfb(1:4),idb(1:3)
+   real(dp) :: pf(1:4,1:4),pfb(1:4,1:4),pb(1:4,1:3)
+   integer :: ipart, ix, iy, ib, ic, nferm, nfermb, nbos, idV_tmp, ncomb
+   real(dp) :: ptmp(1:4,1:8)
+   integer :: idtmp(1:8)
+   logical :: combPass
+   integer, dimension(:), allocatable :: fermb_pairing ! These are input to get the group of permutations
+   logical :: mtc ! These are input to get the group of permutations
+   logical :: even ! These are input to get the group of permutations
+
+   ! Convention for helicity assignment: Assign to f and fb in the order passed, then to the bosons
+
+   idf(:)=Not_a_particle_
+   idfb(:)=Not_a_particle_
+   idb(:)=Not_a_particle_
+   pf(:,:)=0d0
+   pfb(:,:)=0d0
+   pb(:,:)=0d0
+   nferm=1
+   nfermb=1
+   nbos=1
+
+   if(npart.lt.5 .or. npart.gt.8) return ! At least a qqb->GGG and at most a 2q->6f state
+
+   ! Group the ids
+   do ipart=1,npart
+      if(MY_IDUP(ipart).eq.Not_a_particle_) then
+         continue
+      else if(MY_IDUP(ipart).eq.Pho_) then ! Massless bosons
+         if(nbos.eq.4) return ! This should never happen!
+         idb(nbos)=MY_IDUP(ipart)
+         pb(:,nbos)=MomExt(:,ipart)
+         nbos=nbos+1
+      else if( convertLHE(MY_IDUP(ipart)).gt.0 ) then
+         idf(nferm)=MY_IDUP(ipart)
+         pf(:,nferm)=MomExt(:,ipart)
+         nferm=nferm+1
+      else if( convertLHE(MY_IDUP(ipart)).lt.0 ) then
+         idfb(nfermb)=MY_IDUP(ipart)
+         pf(:,nfermb)=MomExt(:,ipart)
+         nfermb=nfermb+1
+      endif
+   enddo
+   if(nferm.ne.nfermb) return ! f-fb=0 has to be satisfied in the case where everything is outgoing
+   if((nferm+nbos).ne.nhel) return ! We need the helicities to be defined
+   allocate(fermb_pairing(nfermb))
+
+   ! Count the combinations
+   ncomb=0
+   do ix=1,nfermb ! Identity
+      fermb_pairing(ix)=ix
+   enddo
+   mtc = .false. ! Start with this statement
+50 continue
+   call NEXPER(nfermb, fermb_pairing(:), mtc, even)
+   combPass=.true.
+   print *,"init_Diagrams :: Doing permutation ("
+   do ix=1,nferm
+      iy = fermb_pairing(ix)
+      print *,iy
+      if(hel(ix).eq.hel(iy)) then
+         idV_tmp=CoupledVertex((/idf(ix),idfb(iy)/),hel(ix))
+         if(idV_tmp.eq.Not_a_particle_) idV_tmp = CoupledVertex_FlavorViolating((/idf(ix),idfb(iy)/),hel(ix))
+         if(idV_tmp.eq.Not_a_particle_) combPass=.false.
+      endif
+      if(.not.combPass) exit ! No need to evaluate the others. The particular permutation is invalid.
+   enddo
+   print *,")"
+   if(combPass) then
+      ncomb = ncomb+1
+   endif
+   if(mtc) GOTO 50
+
+   if(ncomb.eq.0) then
+      deallocate(fermb_pairing)
+      return
+   endif
+   allocate(tree%Diagrams(ncomb))
+
+   ic=1 ! Just to check
+   ! Start over, this time to fill
+   do ix=1,nfermb ! Identity
+      fermb_pairing(ix)=ix
+   enddo
+   mtc = .false. ! Start with this statement
+   even = .true.
+51 continue
+   call NEXPER(nfermb, fermb_pairing(:), mtc, even)
+   combPass=.true.
+   do ix=1,nferm
+      iy = fermb_pairing(ix)
+      if(hel(ix).eq.hel(iy)) then
+         idV_tmp=CoupledVertex((/idf(ix),idfb(iy)/),hel(ix))
+         if(idV_tmp.eq.Not_a_particle_) idV_tmp = CoupledVertex_FlavorViolating((/idf(ix),idfb(iy)/),hel(ix))
+         if(idV_tmp.eq.Not_a_particle_) combPass=.false.
+      endif
+   enddo
+   if(combPass) then
+      do ix=1,nferm
+         iy = fermb_pairing(ix)
+         ptmp(:,2*ix-1)=pf(:,ix)
+         ptmp(:,2*ix)=pfb(:,iy)
+         idtmp(2*ix-1)=idf(ix)
+         idtmp(2*ix)=idfb(iy)
+      enddo
+      do ib=1,nbos
+         ptmp(:,2*nferm+2*ib-1)=pb(:,ib)
+         idtmp(2*nferm+2*ib-1)=idb(ib)
+         ptmp(:,2*nferm+2*ib)=0d0
+         idtmp(2*nferm+2*ib)=Not_a_particle_
+      enddo
+      call tree%Diagrams(ic)%init_Single4VDiagram(ptmp, idtmp, hel, even)
+      ic = ic + 1
+   endif
+   if(mtc) GOTO 51
+
+   deallocate(fermb_pairing) ! No longer needed
+
+   if(ncomb .ne. ic) then
+      print *,"getSwapCombinations :: ncomb .ne. ic!"
+      stop
+   endif
+   return
+end subroutine init_Diagrams
 
 
 
@@ -98,14 +362,14 @@ function MultiplySquareMatrices(ND,m1,m2)
    integer, intent(in) :: ND
    complex(dp), intent(in) :: m1(1:ND,1:ND),m2(1:ND,1:ND)
    complex(dp) :: MultiplySquareMatrices(1:ND,1:ND)
-   integer :: i,mu,nu
+   integer :: i,a,b
 
    MultiplySquareMatrices=czero
    if(ND.lt.1) return
-   do mu=1,ND
-   do nu=1,ND
+   do a=1,ND
+   do b=1,ND
    do i=1,ND
-      MultiplySquareMatrices(mu,nu) = MultiplySquareMatrices(mu,nu) + m1(mu,i)*m2(i,nu)
+      MultiplySquareMatrices(a,b) = MultiplySquareMatrices(a,b) + m1(a,i)*m2(i,b)
    enddo
    enddo
    enddo
@@ -126,27 +390,261 @@ function gamma_gamma_mu(N,p,ubar,v)
 
    gamma(:,:,:,1)=gammaMatrix()
    do i=2,N
-      gamma(:,:,:,i)=gamma(:,:,:,1)
+      gamma(:,:,:,i)=gamma(:,:,:,1) ! Construct gamma_{i=1..N}^mu=gamma(mu,a,b)
    enddo
    do i=2,N
-      gamma_tmp(:,:,i) = gamma(1,:,:,i)*p(1,i) - gamma(2,:,:,i)*p(2,i) - gamma(3,:,:,i)*p(3,i) - gamma(4,:,:,i)*p(4,i) ! gama^mu p_mu
+      gamma_tmp(:,:,i) = gamma(1,:,:,i)*p(1,i) - gamma(2,:,:,i)*p(2,i) - gamma(3,:,:,i)*p(3,i) - gamma(4,:,:,i)*p(4,i) ! (gamma_i^mu p_i_mu)_ab
    enddo
 
    gacc=gamma(:,:,:,1)
    do i=2,N
    do mu=1,4
-      gtmp(mu,:,:) = MultiplySquareMatrices(4,gacc(mu,:,:),gamma_tmp(:,:,i))
+      gtmp(mu,:,:) = MultiplySquareMatrices(4,gacc(mu,:,:),gamma_tmp(:,:,i)) ! (gamma_1^mu)_ac*( Prod_{i=2..N} (gamma_i^nu p_i_nu) )_cb
       gacc=gtmp
    enddo
    enddo
 
    do a=1,4
    do b=1,4
-      gamma_gamma_mu(:) = gamma_gamma_mu(:) + ubar(a)*gacc(:,a,b)*v(b)
+      gamma_gamma_mu(:) = gamma_gamma_mu(:) + ubar(a)*gacc(:,a,b)*v(b) ! Returns a 4-vector in the end
    enddo
    enddo
    return
 end function gamma_gamma_mu
+
+
+function CoupledVertex(id,hel,useAHcoupl)
+   implicit none
+   integer, optional :: useAHcoupl
+   integer, intent(in) :: id(1:2),hel
+   integer :: testAHcoupl
+   integer :: CoupledVertex
+
+   testAHcoupl = 0
+   if(present(useAHcoupl)) then
+      testAHcoupl = useAHcoupl
+   endif
+   if( (&
+   (id(1).eq.ElP_ .and. id(2).eq.NuE_) .or. (id(2).eq.ElP_ .and. id(1).eq.NuE_) .or. &
+   (id(1).eq.MuP_ .and. id(2).eq.NuM_) .or. (id(2).eq.MuP_ .and. id(1).eq.NuM_) .or. &
+   (id(1).eq.TaP_ .and. id(2).eq.NuT_) .or. (id(2).eq.TaP_ .and. id(1).eq.NuT_) .or. &
+   (id(1).eq.Up_  .and. (id(2).eq.ADn_ .or. id(2).eq.AStr_ .or. id(2).eq.ABot_)) .or. (id(2).eq.Up_  .and. (id(1).eq.ADn_ .or. id(1).eq.AStr_ .or. id(1).eq.ABot_)) .or. &
+   (id(1).eq.Chm_ .and. (id(2).eq.ADn_ .or. id(2).eq.AStr_ .or. id(2).eq.ABot_)) .or. (id(2).eq.Chm_ .and. (id(1).eq.ADn_ .or. id(1).eq.AStr_ .or. id(1).eq.ABot_)) .or. &
+   (id(1).eq.Top_ .and. (id(2).eq.ADn_ .or. id(2).eq.AStr_ .or. id(2).eq.ABot_)) .or. (id(2).eq.Top_ .and. (id(1).eq.ADn_ .or. id(1).eq.AStr_ .or. id(1).eq.ABot_))      &
+   ) .and. hel.lt.0) then
+      CoupledVertex=Wp_
+   elseif( (&
+   (id(1).eq.ElM_ .and. id(2).eq.ANuE_) .or. (id(2).eq.ElM_ .and. id(1).eq.ANuE_) .or. &
+   (id(1).eq.MuM_ .and. id(2).eq.ANuM_) .or. (id(2).eq.MuM_ .and. id(1).eq.ANuM_) .or. &
+   (id(1).eq.TaM_ .and. id(2).eq.ANuT_) .or. (id(2).eq.TaM_ .and. id(1).eq.ANuT_) .or. &
+   (id(1).eq.AUp_  .and. (id(2).eq.Dn_ .or. id(2).eq.Str_ .or. id(2).eq.Bot_)) .or. (id(2).eq.AUp_  .and. (id(1).eq.Dn_ .or. id(1).eq.Str_ .or. id(1).eq.Bot_)) .or. &
+   (id(1).eq.AChm_ .and. (id(2).eq.Dn_ .or. id(2).eq.Str_ .or. id(2).eq.Bot_)) .or. (id(2).eq.AChm_ .and. (id(1).eq.Dn_ .or. id(1).eq.Str_ .or. id(1).eq.Bot_)) .or. &
+   (id(1).eq.ATop_ .and. (id(2).eq.Dn_ .or. id(2).eq.Str_ .or. id(2).eq.Bot_)) .or. (id(2).eq.ATop_ .and. (id(1).eq.Dn_ .or. id(1).eq.Str_ .or. id(1).eq.Bot_))      &
+   ) .and. hel.lt.0) then
+      CoupledVertex=Wm_
+   elseif( (&
+   (id(1).eq.ElM_ .and. id(2).eq.ElP_) .or. (id(2).eq.ElM_ .and. id(1).eq.ElP_) .or. &
+   (id(1).eq.MuM_ .and. id(2).eq.MuP_) .or. (id(2).eq.MuM_ .and. id(1).eq.MuP_) .or. &
+   (id(1).eq.TaM_ .and. id(2).eq.TaP_) .or. (id(2).eq.TaM_ .and. id(1).eq.TaP_) .or. &
+   (id(1).eq.Up_  .and. id(2).eq.AUp_) .or. (id(2).eq.Up_  .and. id(1).eq.AUp_) .or. &
+   (id(1).eq.Dn_  .and. id(2).eq.ADn_) .or. (id(2).eq.Dn_  .and. id(1).eq.ADn_) .or. &
+   (id(1).eq.Chm_ .and. id(2).eq.AChm_) .or. (id(2).eq.Chm_ .and. id(1).eq.AChm_) .or. &
+   (id(1).eq.Str_ .and. id(2).eq.AStr_) .or. (id(2).eq.Str_ .and. id(1).eq.Astr_) .or. &
+   (id(1).eq.Top_ .and. id(2).eq.ATop_) .or. (id(2).eq.Top_ .and. id(1).eq.ATop_) .or. &
+   (id(1).eq.Bot_ .and. id(2).eq.ABot_) .or. (id(2).eq.Bot_ .and. id(1).eq.ABot_)      &
+   ) .and. hel.ne.0) then
+      if(testAHcoupl.eq.1) then
+         CoupledVertex=Pho_
+      elseif(testAHcoupl.eq.2) then
+         CoupledVertex=Hig_
+      else
+         CoupledVertex=Z0_
+      endif
+   elseif( (&
+   (id(1).eq.NuE_ .and. id(2).eq.ANuE_) .or. (id(2).eq.NuE_ .and. id(1).eq.ANuE_) .or. &
+   (id(1).eq.NuM_ .and. id(2).eq.ANuM_) .or. (id(2).eq.NuM_ .and. id(1).eq.ANuM_) .or. &
+   (id(1).eq.NuT_ .and. id(2).eq.ANuT_) .or. (id(2).eq.NuT_ .and. id(1).eq.ANuT_)      &
+   ) .and. hel.lt.0) then
+      CoupledVertex=Z0_ ! Only Z coupling to nuL-nubR
+   else
+      CoupledVertex=Not_a_particle_
+   endif
+
+   return
+end function CoupledVertex
+
+function CoupledVertex_FlavorViolating(id,hel,useAHcoupl)
+   implicit none
+   integer, optional :: useAHcoupl
+   integer, intent(in) :: id(1:2),hel
+   integer :: testAHcoupl
+   integer :: CoupledVertex_FlavorViolating
+
+   testAHcoupl = 0
+   if(present(useAHcoupl)) then
+      testAHcoupl = useAHcoupl
+   endif
+   if( (&
+   (id(1).eq.Up_  .and. id(2).eq.AChm_) .or. (id(2).eq.Up_  .and. id(1).eq.AChm_) .or. &
+   (id(1).eq.Up_  .and. id(2).eq.ATop_) .or. (id(2).eq.Up_  .and. id(1).eq.ATop_) .or. &
+   (id(1).eq.Chm_ .and. id(2).eq.AUp_ ) .or. (id(2).eq.Chm_ .and. id(1).eq.AUp_ ) .or. &
+   (id(1).eq.Chm_ .and. id(2).eq.ATop_) .or. (id(2).eq.Chm_ .and. id(1).eq.ATop_) .or. &
+   (id(1).eq.Top_ .and. id(2).eq.AUp_ ) .or. (id(2).eq.Top_ .and. id(1).eq.AUp_ ) .or. &
+   (id(1).eq.Top_ .and. id(2).eq.AChm_) .or. (id(2).eq.Top_ .and. id(1).eq.AChm_) .or. &
+
+   (id(1).eq.Dn_  .and. id(2).eq.AStr_) .or. (id(2).eq.Dn_  .and. id(1).eq.AStr_) .or. &
+   (id(1).eq.Dn_  .and. id(2).eq.ABot_) .or. (id(2).eq.Dn_  .and. id(1).eq.ABot_) .or. &
+   (id(1).eq.Str_ .and. id(2).eq.ADn_ ) .or. (id(2).eq.Str_ .and. id(1).eq.ADn_ ) .or. &
+   (id(1).eq.Str_ .and. id(2).eq.ABot_) .or. (id(2).eq.Str_ .and. id(1).eq.ABot_) .or. &
+   (id(1).eq.Bot_ .and. id(2).eq.ADn_ ) .or. (id(2).eq.Bot_ .and. id(1).eq.ADn_ ) .or. &
+   (id(1).eq.Bot_ .and. id(2).eq.AStr_) .or. (id(2).eq.Bot_ .and. id(1).eq.AStr_)      &
+   ) .and. hel.lt.0) then ! Tests W coupling that looks like a Z decay, so only allow left-handed decays
+      if(testAHcoupl.eq.1) then
+         CoupledVertex_FlavorViolating=Pho_
+      elseif(testAHcoupl.eq.2) then
+         CoupledVertex_FlavorViolating=Hig_
+      else
+         CoupledVertex_FlavorViolating=Z0_
+      endif
+   else
+      CoupledVertex_FlavorViolating=Not_a_particle_
+   endif
+
+   return
+end function CoupledVertex_FlavorViolating
+
+function WDaughterPair(id, considerTops)
+   implicit none
+   integer, intent(in) :: id
+   integer :: WDaughterPair(1:3)
+   logical, optional :: considerTops
+
+   WDaughterPair(:)=Not_a_particle_
+   if(id.eq.ElP_) then
+      WDaughterPair(1)=NuE_
+   elseif(id.eq.MuP_) then
+      WDaughterPair(1)=NuM_
+   elseif(id.eq.TaP_) then
+      WDaughterPair(1)=NuT_
+   elseif(id.eq.NuE_) then
+      WDaughterPair(1)=ElP_
+   elseif(id.eq.NuM_) then
+      WDaughterPair(1)=MuP_
+   elseif(id.eq.NuT_) then
+      WDaughterPair(1)=TaP_
+
+   elseif(id.eq.ElM_) then
+      WDaughterPair(1)=ANuE_
+   elseif(id.eq.MuM_) then
+      WDaughterPair(1)=ANuM_
+   elseif(id.eq.TaM_) then
+      WDaughterPair(1)=ANuT_
+   elseif(id.eq.ANuE_) then
+      WDaughterPair(1)=ElM_
+   elseif(id.eq.ANuM_) then
+      WDaughterPair(1)=MuM_
+   elseif(id.eq.ANuT_) then
+      WDaughterPair(1)=TaM_
+
+   elseif(id.eq.Up_ .or. id.eq.Chm_ .or. id.eq.Top_) then
+      WDaughterPair(1)=ADn_
+      WDaughterPair(2)=AStr_
+      WDaughterPair(3)=ABot_
+   elseif(id.eq.AUp_ .or. id.eq.AChm_ .or. id.eq.ATop_) then
+      WDaughterPair(1)=Dn_
+      WDaughterPair(2)=Str_
+      WDaughterPair(3)=Bot_
+
+   elseif(id.eq.Dn_ .or. id.eq.Str_ .or. id.eq.Bot_) then
+      WDaughterPair(1)=AUp_
+      WDaughterPair(2)=AChm_
+      if(present(considerTops)) then
+         if(considerTops) then
+            WDaughterPair(3)=ATop_
+         endif
+      endif
+   elseif(id.eq.ADn_ .or. id.eq.AStr_ .or. id.eq.ABot_) then
+      WDaughterPair(1)=Up_
+      WDaughterPair(2)=Chm_
+      if(present(considerTops)) then
+         if(considerTops) then
+            WDaughterPair(3)=Top_
+         endif
+      endif
+   endif
+
+   return
+end function WDaughterPair
+
+function ScalarPropagator(idV,p,cmasssq)
+   use ModMisc
+   implicit none
+   integer, intent(in) :: idV
+   real(dp), intent(in) :: p(1:4)
+   complex(dp), optional :: cmasssq
+   complex(dp) :: ScalarPropagator
+   real(dp) :: s
+
+   ScalarPropagator = czero
+   s = p(:).dot.p(:)
+   if(idV .eq. Wm_ .or. idV.eq.Wp_) then
+      ScalarPropagator = -ci/( s - M_W**2 + ci*M_W*Ga_W)
+   elseif(idV .eq. Z0_) then
+      ScalarPropagator = -ci/( s - M_Z**2 + ci*M_Z*Ga_Z)
+   elseif(idV .eq. Pho_) then
+      ScalarPropagator = -ci/s
+   elseif(idV .eq. Hig_) then
+      ScalarPropagator = ci/( s - M_Reso**2 + ci*M_Reso*Ga_Reso)
+   elseif(present(cmasssq)) then
+      ScalarPropagator = ci/( s - cmasssq)
+   else
+      ScalarPropagator = ci/s
+   endif
+
+   return
+end function ScalarPropagator
+
+function VectorPropagator(idV,p,current,scprop)
+   use ModMisc
+   implicit none
+   integer, intent(in) :: idV
+   real(dp), intent(in) :: p(1:4)
+   complex(dp), intent(in) :: current(1:4)
+   complex(dp), optional :: scprop
+   complex(dp) :: VectorPropagator(1:4)
+   complex(dp) :: prefactor
+
+   VectorPropagator(:) = czero
+   prefactor = ScalarPropagator(idV,p)
+   if(present(scprop)) then
+      scprop = prefactor
+   endif
+
+   if(idV .eq. Wm_ .or. idV.eq.Wp_ .or. idV .eq. Z0_) then
+      VectorPropagator(:) = prefactor*(current(:)-p(:)*((cmplx(p(:),kind=dp)).dot.current(:))/(p(:).dot.p(:)))
+   elseif(idV .eq. Pho_) then
+      VectorPropagator(:) = prefactor*current(:)
+   endif
+
+   return
+end function VectorPropagator
+
+function EuclideanMagnitude_Complex(ND,p)
+   implicit none
+   integer, intent(in) :: ND
+   complex(dp), intent(in) :: p(1:ND)
+   real(dp) :: EuclideanMagnitude_Complex
+   integer :: i
+
+   EuclideanMagnitude_Complex=0_dp
+   if(ND.gt.0) then
+      do i=1,ND
+         EuclideanMagnitude_Complex = EuclideanMagnitude_Complex + p(i)*dconjg(p(i))
+      enddo
+      EuclideanMagnitude_Complex = dsqrt(EuclideanMagnitude_Complex)
+   endif
+   return
+end function EuclideanMagnitude_Complex
 
 !     ubar spinor, massless
 function ubar0(p,i)
@@ -197,8 +695,7 @@ function ubar0(p,i)
    return
 end function ubar0
 
-
-!     ubar spinor, massive
+!     ubar spinor, massive (not used)
 function ubarm(cp,i)
    implicit none
    complex(dp), intent(in) :: cp(4)
@@ -249,8 +746,7 @@ function ubarm(cp,i)
    return
 end function ubarm
 
-
-  ! -- v0  spinor, massless
+!     v spinor, massless
 function v0(p,i)
    implicit none
    complex(dp), intent(in) :: p(4)
@@ -299,8 +795,7 @@ function v0(p,i)
    return
 end function v0
 
-
-!     v spinor, massive
+!     v spinor, massive (not used)
 function vm(cp,i)
    implicit none
    complex(dp), intent(in) :: cp(4)
@@ -406,44 +901,68 @@ function CurrentPrefactor(id,hel,useA)
 end function CurrentPrefactor
 
 ! Returns i*charge*J^mu_L/R
-function Vcurrent(p,id,hel,idV,useAcoupl,Ub_out,V_out)
+function Vcurrent(p,id,hel, idV,idV_flavorviolating,useAcoupl,Ub_out,V_out)
    implicit none
    real(dp), intent(in) :: p(1:4,1:2)
    integer, intent(in) :: id(1:2)
    integer, intent(in) :: hel
    integer, intent(out) :: idV
+   integer, optional :: idV_flavorviolating
    logical, optional :: useAcoupl
    complex(dp), optional :: Ub_out(4)
    complex(dp), optional :: V_out(4)
-   integer :: idc(1:2)
+   integer :: idc(1:2), idV_flvio
    complex(dp) :: Vcurrent(4),Ub(4),V(4),prefactor
    integer :: testAcoupl
 
+   ! Initialize return values
+   Ub(:)=czero
+   V(:)=czero
    Vcurrent(:)=czero
+   idV=Not_a_particle_
+   idV_flvio=Not_a_particle_
 
-   if(hel.eq.0) return
    testAcoupl=0
    if(present(useAcoupl)) then
       if(useAcoupl) testAcoupl=1
    endif
-   idV = CoupledVertex(id,hel,useAHcoupl=testAcoupl)
-   if(idV.eq.Not_a_particle_) return
 
-   idc(1)=convertLHE(id(1))
-   idc(2)=convertLHE(id(2))
-   if(idc(1).gt.0 .and. idc(2).lt.0) then
-      Ub(:)=ubar0(cmplx(p(1:4,1),kind=dp),hel)
-      V(:)=v0(cmplx(p(1:4,2),kind=dp),-hel)
-   else
-      Ub(:)=ubar0(cmplx(p(1:4,2),kind=dp),hel)
-      V(:)=v0(cmplx(p(1:4,1),kind=dp),-hel)
+
+   ! Give idV regardless
+   idV = CoupledVertex(id,hel,useAHcoupl=testAcoupl)
+   idV_flvio = CoupledVertex_FlavorViolating(id,hel,useAHcoupl=testAcoupl)
+   if(present(idV_flavorviolating)) then
+      idV_flavorviolating = idV_flvio
    endif
+
+   ! Compute ubar and v if there is either an actual association or a hidden W
+   ! Hidden W: W->ud, u->W'd' or d->u'W', giving W->uu'W' or dd'W'. The fermions may violate flavor.
+   ! Hidden Z, Z->uu, u->Wd', giving Z->ud'W, is also possible. In this case, the fermions would only be mis-identified, but idV would be valid albeit not te corect one.
+   ! Hidden Z cases are tested separately in the corresponding amplitudes.
+   ! The two hidden vertex cases are the reasons for returning Ub ans V as well.
+   if(idV.ne.Not_a_particle_ .or. idV_flvio.ne.Not_a_particle_) then
+      idc(1)=convertLHE(id(1))
+      idc(2)=convertLHE(id(2))
+      if(idc(1).gt.0 .and. idc(2).lt.0) then
+         Ub(:)=ubar0(cmplx(p(1:4,1),kind=dp),hel)
+         V(:)=v0(cmplx(p(1:4,2),kind=dp),-hel)
+      else if(idc(1).lt.0 .and. idc(2).gt.0) then
+         Ub(:)=ubar0(cmplx(p(1:4,2),kind=dp),hel)
+         V(:)=v0(cmplx(p(1:4,1),kind=dp),-hel)
+      endif
+   endif
+   ! Give ubar and v
    if(present(Ub_out)) then
       Ub_out = Ub
    endif
    if(present(V_out)) then
       V_out = V
    endif
+
+   ! Now skip current computations if the vertex could not be identified for actual association
+   ! This means there is either a W in the middle, or there is really no current possible
+   if(idV.eq.Not_a_particle_) return
+
    ! 1=E,2=px,3=py,4=pz
    ! This is an expression for Ub(+/-)) Gamma^\mu V(-/+)
    Vcurrent(1)=(Ub(2)*V(4)+V(2)*Ub(4)+Ub(1)*V(3)+V(1)*Ub(3))
@@ -468,7 +987,7 @@ function pol_massive(p,hel)
    complex(dp) :: inv_mass
    complex(dp) :: pol_massive(1:4)
    real(dp) :: epsilon = 1d-14*GeV ! A small quantity ~ 1e-5 eV
-      
+
    pol_massive(:)=czero
    sincos = angles(p)
 
@@ -491,7 +1010,7 @@ function pol_massive(p,hel)
    else ! lambda = L
       abs3p = sqrt(abs(p(2)**2+p(3)**2+p(4)**2))
       inv_mass = (p(1)**2-abs3p**2)
-      inv_mass = sqrt(inv_mass) ! make sure E**2-p**2=m**2 is satisfied by extending to the complex notation since sum_h{eps^mu_h eps*^nu_h}=-(g^munu-p^mup^nu/p**2) has to be true.
+      inv_mass = sqrt(inv_mass) ! make sure E**2-p**2=m**2 is satisfied by extending to the complex plane if needed since sum_h{eps^mu_h eps*^nu_h}=-(g^munu-p^mup^nu/p**2) has to be true even if the invariant mass squared is <0.
       if(abs(inv_mass).gt.epsilon) then
          pol_massive(1)= abs3p/inv_mass
          pol_massive(2)= sincos(3)*sincos(2)*p(1)/inv_mass
@@ -508,7 +1027,7 @@ function pol_massless(p,hel)
    integer, intent(in) :: hel
    real(dp) :: sincos(1:4)
    complex(dp) :: pol_massless(1:4)
-      
+
    pol_massless(:)=czero
    sincos = angles(p)
 
@@ -570,6 +1089,7 @@ function angles(vector, halfangles)
 end function angles
 
 
+! Basic amplitude tools
 function dgmunuab_ewk(p) ! 2 g_munu g_ab - g_mua g_nub -g_mub g_nua
    use ModMisc
    implicit none
@@ -636,7 +1156,7 @@ function Id_Order(Npart,idV,idT)
    integer :: Id_Order(1:Npart),target,part
 
    Id_Order(:)=0
-   
+
    do part=1,NPart
       do target=1,NPart
          if(idV(part).eq.idT(target) .and. Id_Order(target).ne.0) then
@@ -648,161 +1168,6 @@ function Id_Order(Npart,idV,idT)
 
    return
 end function Id_Order
-
-
-function CoupledVertex(id,hel,useAHcoupl)
-   implicit none
-   integer, optional :: useAHcoupl
-   integer, intent(in) :: id(1:2),hel
-   integer :: testAHcoupl
-   integer :: CoupledVertex
-
-   testAHcoupl = 0
-   if(present(useAHcoupl)) then
-      testAHcoupl = useAHcoupl
-   endif
-   if( (&
-   (id(1).eq.ElP_ .and. id(2).eq.NuE_) .or. (id(2).eq.ElP_ .and. id(1).eq.NuE_) .or. &
-   (id(1).eq.MuP_ .and. id(2).eq.NuM_) .or. (id(2).eq.MuP_ .and. id(1).eq.NuM_) .or. &
-   (id(1).eq.TaP_ .and. id(2).eq.NuT_) .or. (id(2).eq.TaP_ .and. id(1).eq.NuT_) .or. &
-   (id(1).eq.Up_  .and. (id(2).eq.ADn_ .or. id(2).eq.AStr_ .or. id(2).eq.ABot_)) .or. (id(2).eq.Up_  .and. (id(1).eq.ADn_ .or. id(1).eq.AStr_ .or. id(1).eq.ABot_)) .or. &
-   (id(1).eq.Chm_ .and. (id(2).eq.ADn_ .or. id(2).eq.AStr_ .or. id(2).eq.ABot_)) .or. (id(2).eq.Chm_ .and. (id(1).eq.ADn_ .or. id(1).eq.AStr_ .or. id(1).eq.ABot_)) .or. &
-   (id(1).eq.Top_ .and. (id(2).eq.ADn_ .or. id(2).eq.AStr_ .or. id(2).eq.ABot_)) .or. (id(2).eq.Top_ .and. (id(1).eq.ADn_ .or. id(1).eq.AStr_ .or. id(1).eq.ABot_))      &
-   ) .and. hel.lt.0) then
-      CoupledVertex=Wp_
-   elseif( (&
-   (id(1).eq.ElM_ .and. id(2).eq.ANuE_) .or. (id(2).eq.ElM_ .and. id(1).eq.ANuE_) .or. &
-   (id(1).eq.MuM_ .and. id(2).eq.ANuM_) .or. (id(2).eq.MuM_ .and. id(1).eq.ANuM_) .or. &
-   (id(1).eq.TaM_ .and. id(2).eq.ANuT_) .or. (id(2).eq.TaM_ .and. id(1).eq.ANuT_) .or. &
-   (id(1).eq.AUp_  .and. (id(2).eq.Dn_ .or. id(2).eq.Str_ .or. id(2).eq.Bot_)) .or. (id(2).eq.AUp_  .and. (id(1).eq.Dn_ .or. id(1).eq.Str_ .or. id(1).eq.Bot_)) .or. &
-   (id(1).eq.AChm_ .and. (id(2).eq.Dn_ .or. id(2).eq.Str_ .or. id(2).eq.Bot_)) .or. (id(2).eq.AChm_ .and. (id(1).eq.Dn_ .or. id(1).eq.Str_ .or. id(1).eq.Bot_)) .or. &
-   (id(1).eq.ATop_ .and. (id(2).eq.Dn_ .or. id(2).eq.Str_ .or. id(2).eq.Bot_)) .or. (id(2).eq.ATop_ .and. (id(1).eq.Dn_ .or. id(1).eq.Str_ .or. id(1).eq.Bot_))      &
-   ) .and. hel.lt.0) then
-      CoupledVertex=Wm_
-   elseif( &
-   (id(1).eq.ElM_ .and. id(2).eq.ElP_) .or. (id(2).eq.ElM_ .and. id(1).eq.ElP_) .or. &
-   (id(1).eq.MuM_ .and. id(2).eq.MuP_) .or. (id(2).eq.MuM_ .and. id(1).eq.MuP_) .or. &
-   (id(1).eq.TaM_ .and. id(2).eq.TaP_) .or. (id(2).eq.TaM_ .and. id(1).eq.TaP_) .or. &
-   (id(1).eq.Up_  .and. id(2).eq.AUp_) .or. (id(2).eq.Up_  .and. id(1).eq.AUp_) .or. &
-   (id(1).eq.Dn_  .and. id(2).eq.ADn_) .or. (id(2).eq.Dn_  .and. id(1).eq.ADn_) .or. &
-   (id(1).eq.Chm_ .and. id(2).eq.AChm_) .or. (id(2).eq.Chm_ .and. id(1).eq.AChm_) .or. &
-   (id(1).eq.Str_ .and. id(2).eq.AStr_) .or. (id(2).eq.Str_ .and. id(1).eq.Astr_) .or. &
-   (id(1).eq.Top_ .and. id(2).eq.ATop_) .or. (id(2).eq.Top_ .and. id(1).eq.ATop_) .or. &
-   (id(1).eq.Bot_ .and. id(2).eq.ABot_) .or. (id(2).eq.Bot_ .and. id(1).eq.ABot_)      &
-   ) then
-      if(testAHcoupl.eq.1) then
-         CoupledVertex=Pho_
-      elseif(testAHcoupl.eq.2) then
-         CoupledVertex=Hig_
-      else
-         CoupledVertex=Z0_
-      endif
-   elseif( (&
-   (id(1).eq.NuE_ .and. id(2).eq.ANuE_) .or. (id(2).eq.NuE_ .and. id(1).eq.ANuE_) .or. &
-   (id(1).eq.NuM_ .and. id(2).eq.ANuM_) .or. (id(2).eq.NuM_ .and. id(1).eq.ANuM_) .or. &
-   (id(1).eq.NuT_ .and. id(2).eq.ANuT_) .or. (id(2).eq.NuT_ .and. id(1).eq.ANuT_)      &
-   ) .and. hel.lt.0) then
-      CoupledVertex=Z0_ ! Only Z coupling to nuL-nubR
-   else
-      CoupledVertex=Not_a_particle_
-   endif
-
-   return
-end function CoupledVertex
-
-function CoupledVertex_FlavorViolating(id,hel,useAHcoupl)
-   implicit none
-   integer, optional :: useAHcoupl
-   integer, intent(in) :: id(1:2),hel
-   integer :: testAHcoupl
-   integer :: CoupledVertex_FlavorViolating
-
-   testAHcoupl = 0
-   if(present(useAHcoupl)) then
-      testAHcoupl = useAHcoupl
-   endif
-   if( (&
-   (id(1).eq.Up_  .and. id(2).eq.AChm_) .or. (id(2).eq.Up_  .and. id(1).eq.AChm_) .or. &
-   (id(1).eq.Up_  .and. id(2).eq.ATop_) .or. (id(2).eq.Up_  .and. id(1).eq.ATop_) .or. &
-   (id(1).eq.Chm_ .and. id(2).eq.AUp_ ) .or. (id(2).eq.Chm_ .and. id(1).eq.AUp_ ) .or. &
-   (id(1).eq.Chm_ .and. id(2).eq.ATop_) .or. (id(2).eq.Chm_ .and. id(1).eq.ATop_) .or. &
-   (id(1).eq.Top_ .and. id(2).eq.AUp_ ) .or. (id(2).eq.Top_ .and. id(1).eq.AUp_ ) .or. &
-   (id(1).eq.Top_ .and. id(2).eq.AChm_) .or. (id(2).eq.Top_ .and. id(1).eq.AChm_) .or. &
-
-   (id(1).eq.Dn_  .and. id(2).eq.AStr_) .or. (id(2).eq.Dn_  .and. id(1).eq.AStr_) .or. &
-   (id(1).eq.Dn_  .and. id(2).eq.ABot_) .or. (id(2).eq.Dn_  .and. id(1).eq.ABot_) .or. &
-   (id(1).eq.Str_ .and. id(2).eq.ADn_ ) .or. (id(2).eq.Str_ .and. id(1).eq.ADn_ ) .or. &
-   (id(1).eq.Str_ .and. id(2).eq.ABot_) .or. (id(2).eq.Str_ .and. id(1).eq.ABot_) .or. &
-   (id(1).eq.Bot_ .and. id(2).eq.ADn_ ) .or. (id(2).eq.Bot_ .and. id(1).eq.ADn_ ) .or. &
-   (id(1).eq.Bot_ .and. id(2).eq.AStr_) .or. (id(2).eq.Bot_ .and. id(1).eq.AStr_)      &
-   ) .and. hel.lt.0) then
-      if(testAHcoupl.eq.1) then
-         CoupledVertex_FlavorViolating=Pho_
-      elseif(testAHcoupl.eq.2) then
-         CoupledVertex_FlavorViolating=Hig_
-      else
-         CoupledVertex_FlavorViolating=Z0_
-      endif
-   else
-      CoupledVertex_FlavorViolating=Not_a_particle_
-   endif
-
-   return
-end function CoupledVertex_FlavorViolating
-
-function WDaughterPair(id)
-   implicit none
-   integer, intent(in) :: id
-   integer :: WDaughterPair(1:3)
-
-   WDaughterPair(:)=Not_a_particle_
-   if(id.eq.ElP_) then
-      WDaughterPair(1)=NuE_
-   elseif(id.eq.MuP_) then
-      WDaughterPair(1)=NuM_
-   elseif(id.eq.TaP_) then
-      WDaughterPair(1)=NuT_
-   elseif(id.eq.NuE_) then
-      WDaughterPair(1)=ElP_
-   elseif(id.eq.NuM_) then
-      WDaughterPair(1)=MuP_
-   elseif(id.eq.NuT_) then
-      WDaughterPair(1)=TaP_
-
-   elseif(id.eq.ElM_) then
-      WDaughterPair(1)=ANuE_
-   elseif(id.eq.MuM_) then
-      WDaughterPair(1)=ANuM_
-   elseif(id.eq.TaM_) then
-      WDaughterPair(1)=ANuT_
-   elseif(id.eq.ANuE_) then
-      WDaughterPair(1)=ElM_
-   elseif(id.eq.ANuM_) then
-      WDaughterPair(1)=MuM_
-   elseif(id.eq.ANuT_) then
-      WDaughterPair(1)=TaM_
-
-   elseif(id.eq.Up_ .or. id.eq.Chm_ .or. id.eq.Top_) then
-      WDaughterPair(1)=ADn_
-      WDaughterPair(2)=AStr_
-      WDaughterPair(3)=ABot_
-   elseif(id.eq.AUp_ .or. id.eq.AChm_ .or. id.eq.ATop_) then
-      WDaughterPair(1)=Dn_
-      WDaughterPair(2)=Str_
-      WDaughterPair(3)=Bot_
-
-   elseif(id.eq.Dn_ .or. id.eq.Str_ .or. id.eq.Bot_) then
-      WDaughterPair(1)=AUp_
-      WDaughterPair(2)=AChm_
-!      WDaughterPair(3)=ATop_
-   elseif(id.eq.ADn_ .or. id.eq.AStr_ .or. id.eq.ABot_) then
-      WDaughterPair(1)=Up_
-      WDaughterPair(2)=Chm_
-!      WDaughterPair(3)=Top_
-   endif
-
-   return
-end function WDaughterPair
 
 
 
@@ -851,6 +1216,7 @@ function QuarticEWKVertex(p,idV,outType) ! p(:,1:4): Currents; order: (incoming 
    return
 end function QuarticEWKVertex
 
+! (Z/A)WW
 function TripleEWKVertex(p,current,idV,useAcoupl)
    implicit none
    real(dp), intent(in) :: p(1:4,1:3)
@@ -886,7 +1252,7 @@ function TripleEWKVertex(p,current,idV,useAcoupl)
    return
 end function TripleEWKVertex
 
-! A/Zff,f->fA/Zf'f'
+! (A/Z)ff,f->fA/Zf'f'
 function ZAf_fZAfpfp(p,id,hel,Ub,V,useAcoupl)
    implicit none
    real(dp), intent(in) :: p(1:4,1:2,1:2) ! Lorentz, 1,i=ubar(i); 2,i=v(i)
@@ -1062,8 +1428,7 @@ function ZAf_fZAfpfp(p,id,hel,Ub,V,useAcoupl)
    return
 end function ZAf_fZAfpfp
 
-
-! A/Zff,f->fWf'f'
+! (A/Z)ff,f->fWf'f'
 function ZAf_fWfpfp(p,id,hel,Ub,V,useAcoupl)
    implicit none
    real(dp), intent(in) :: p(1:4,1:2,1:2) ! Lorentz, 1,i=ubar(i); 2,i=v(i)
@@ -1160,7 +1525,7 @@ function ZAf_fWfpfp(p,id,hel,Ub,V,useAcoupl)
       ZAf_fWfpfp(:) = ZAf_fWfpfp(:) + restmp(:)
    endif
 
-   
+
    if(idc(1,2).gt.0 .and. idc(2,2).lt.0) then
       idV(1) = CoupledVertex((/-id(2,2),id(2,2)/),hel(2),useAHcoupl=testAcoupl)
       idV(2) = CoupledVertex((/id(1,2),-id(1,2)/),hel(2),useAHcoupl=testAcoupl)
@@ -1227,8 +1592,7 @@ function ZAf_fWfpfp(p,id,hel,Ub,V,useAcoupl)
    return
 end function ZAf_fWfpfp
 
-
-! Wff,f->fA/Zf'f'
+! Wff,f->f(A/Z)f'f'
 function Wf_fZAfpfp(p,id,hel,Ub,V)
    implicit none
    real(dp), intent(in) :: p(1:4,1:2,1:2) ! Lorentz, 1,i=ubar(i); 2,i=v(i)
@@ -1328,7 +1692,6 @@ function Wf_fZAfpfp(p,id,hel,Ub,V)
 
    return
 end function Wf_fZAfpfp
-
 
 ! Wff,f->fpWf'f'
 function Wf_fWfpfp(p,id,hel,Ub,V)
@@ -1470,7 +1833,7 @@ function Wf_fWfpfp(p,id,hel,Ub,V)
             idV_tmp = CoupledVertex((/ rootPair(rp), id(2,2) /),hel(2))
             if(idV_tmp .eq. idV(1)) then
                prefactor = CurrentPrefactor((/ rootPair(rp), id(2,2) /),hel(2)) ! W->f2 fb2
-               innerprefactor = CurrentPrefactor((/id(1,2),-rootPair(rp)/),hel(2)) ! W->f2 fp2 
+               innerprefactor = CurrentPrefactor((/id(1,2),-rootPair(rp)/),hel(2)) ! W->f2 fp2
                q1scprop = ScalarPropagator(-rootPair(rp),q1)
                allprefactor = allprefactor + prefactor*innerprefactor*q1scprop
             endif
@@ -1483,7 +1846,7 @@ function Wf_fWfpfp(p,id,hel,Ub,V)
             idV_tmp = CoupledVertex((/ rootPair(rp), id(1,2) /),hel(2))
             if(idV_tmp .eq. idV(1)) then
                prefactor = CurrentPrefactor((/ rootPair(rp), id(1,2) /),hel(2)) ! W->f2 fb2
-               innerprefactor = CurrentPrefactor((/id(2,2),-rootPair(rp)/),hel(2)) ! W->f2 fp2 
+               innerprefactor = CurrentPrefactor((/id(2,2),-rootPair(rp)/),hel(2)) ! W->f2 fp2
                q1scprop = ScalarPropagator(-rootPair(rp),q1)
                allprefactor = allprefactor + prefactor*innerprefactor*q1scprop
             endif
@@ -1508,7 +1871,7 @@ function Wf_fWfpfp(p,id,hel,Ub,V)
             idV_tmp = CoupledVertex((/ id(1,2), rootPair(rp) /),hel(2))
             if(idV_tmp .eq. idV(1)) then
                prefactor = CurrentPrefactor((/ id(1,2), rootPair(rp) /),hel(2)) ! W->f2 fb2
-               innerprefactor = CurrentPrefactor((/ -rootPair(rp), id(2,2) /),hel(2)) ! W->fb2 fbp2 
+               innerprefactor = CurrentPrefactor((/ -rootPair(rp), id(2,2) /),hel(2)) ! W->fb2 fbp2
                q1scprop = ScalarPropagator(rootPair(rp),q1)
                allprefactor = allprefactor + prefactor*innerprefactor*q1scprop
             endif
@@ -1521,7 +1884,7 @@ function Wf_fWfpfp(p,id,hel,Ub,V)
             idV_tmp = CoupledVertex((/ id(2,2), rootPair(rp) /),hel(2))
             if(idV_tmp .eq. idV(1)) then
                prefactor = CurrentPrefactor((/ id(2,2), rootPair(rp) /),hel(2)) ! W->f2 fb2
-               innerprefactor = CurrentPrefactor((/ -rootPair(rp), id(1,2) /),hel(2)) ! W->fb2 fbp2 
+               innerprefactor = CurrentPrefactor((/ -rootPair(rp), id(1,2) /),hel(2)) ! W->fb2 fbp2
                q1scprop = ScalarPropagator(rootPair(rp),q1)
                allprefactor = allprefactor + prefactor*innerprefactor*q1scprop
             endif
@@ -1539,7 +1902,7 @@ function Wf_fWfpfp(p,id,hel,Ub,V)
 end function Wf_fWfpfp
 
 
-
+! Signal-related amplitudes
 ! 4H
 function QuarticHVertex(idV)
    implicit none
@@ -1695,77 +2058,6 @@ function VVHVertex(p,current,idV,outType)
 end function VVHVertex
 
 
-function ScalarPropagator(idV,p,cmasssq)
-   use ModMisc
-   implicit none
-   integer, intent(in) :: idV
-   real(dp), intent(in) :: p(1:4)
-   complex(dp), optional :: cmasssq
-   complex(dp) :: ScalarPropagator
-   real(dp) :: s
-
-   ScalarPropagator = czero
-   s = p(:).dot.p(:)
-   if(idV .eq. Wm_ .or. idV.eq.Wp_) then
-      ScalarPropagator = -ci/( s - M_W**2 + ci*M_W*Ga_W)
-   elseif(idV .eq. Z0_) then
-      ScalarPropagator = -ci/( s - M_Z**2 + ci*M_Z*Ga_Z)
-   elseif(idV .eq. Pho_) then
-      ScalarPropagator = -ci/s
-   elseif(idV .eq. Hig_) then
-      ScalarPropagator = ci/( s - M_Reso**2 + ci*M_Reso*Ga_Reso)
-   elseif(present(cmasssq)) then
-      ScalarPropagator = ci/( s - cmasssq)
-   else
-      ScalarPropagator = ci/s
-   endif
-
-   return
-end function ScalarPropagator
-
-
-function VectorPropagator(idV,p,current,scprop)
-   use ModMisc
-   implicit none
-   integer, intent(in) :: idV
-   real(dp), intent(in) :: p(1:4)
-   complex(dp), intent(in) :: current(1:4)
-   complex(dp), optional :: scprop
-   complex(dp) :: VectorPropagator(1:4)
-   complex(dp) :: prefactor
-
-   VectorPropagator(:) = czero
-   prefactor = ScalarPropagator(idV,p)
-   if(present(scprop)) then
-      scprop = prefactor
-   endif
-
-   if(idV .eq. Wm_ .or. idV.eq.Wp_ .or. idV .eq. Z0_) then
-      VectorPropagator(:) = prefactor*(current(:)-p(:)*((cmplx(p(:),kind=dp)).dot.current(:))/(p(:).dot.p(:)))
-   elseif(idV .eq. Pho_) then
-      VectorPropagator(:) = prefactor*current(:)
-   endif
-
-   return
-end function VectorPropagator
-
-function EuclideanMagnitude_Complex(ND,p)
-   implicit none
-   integer, intent(in) :: ND
-   complex(dp), intent(in) :: p(1:ND)
-   real(dp) :: EuclideanMagnitude_Complex
-   integer :: i
-
-   EuclideanMagnitude_Complex=0_dp
-   if(ND.gt.0) then
-      do i=1,ND
-         EuclideanMagnitude_Complex = EuclideanMagnitude_Complex + p(i)*dconjg(p(i))
-      enddo
-      EuclideanMagnitude_Complex = dsqrt(EuclideanMagnitude_Complex)
-   endif
-   return
-end function EuclideanMagnitude_Complex
-
 
 function getCurrents_VA(p,id,hel,current,currentA,Ub,V,qV,idV,idA)
    implicit none
@@ -1829,6 +2121,8 @@ function getCurrents_VA(p,id,hel,current,currentA,Ub,V,qV,idV,idA)
    return
 end function getCurrents_VA
 
+
+! Subroutines to combine the amplitudes
 
 subroutine amp_VVHVV(qV,idV,idA,currentV,currentA,ime)
    implicit none
@@ -2679,6 +2973,7 @@ subroutine amp_tchannelV_VffVfpfp(p,id,hel,Ub,V,current,ime)
 end subroutine amp_tchannelV_VffVfpfp
 
 
+! Subroutines to determine the possible 4V diagrams
 
 subroutine getSwapCombinations(p,id,hel,combination,combination_p,nhel,ncomb)
    use ModParameters
@@ -2711,7 +3006,7 @@ subroutine getSwapCombinations(p,id,hel,combination,combination_p,nhel,ncomb)
 
    allocate(combination_first(nffb,nhel))
    allocate(combination_p_first(4,nffb,nhel))
-   
+
    ! Group the ids
    do if=1,nffb
    do ih=1,nhel
