@@ -136,18 +136,3 @@ test:
     - if [ -f ~/mixtures ]; then cd ~/CMSJHU_AnalysisMacros/ZZ4lanalyticalfits && echo -e '.x loadLib.C\n.x angularDistributions_spin0.C+("$CIRCLE_ARTIFACTS/ggH/fa30.5i.root", "$CIRCLE_ARTIFACTS/ggH/fa30.5i/", 1, 0, 2.55052, 0, 0)' | root -b; fi
     #VBF plots
     - cd ~/CMSJHU_AnalysisMacros/MCProductionValidation && root -b -q VBFplots.C+
-
-deployment:
-  fixnewlines:
-    branch: /.*/
-    owner: JHUGen
-    commands:
-      - git config user.email JHUGencircle@gmail.com
-      - git config user.name CircleCI
-      - git config user.github JHUGen-circle
-      - git checkout -- .:
-          pwd: ..
-      - dos2unix $(git ls-files):
-          pwd: ..
-      #if pushing doesn't work because there has been a more recent push, don't mark the tests as failed
-      - if [ $CIRCLE_BRANCH ] && git diff | grep -q .; then git commit -a -m "CircleCI - use unix style newlines" && git push git@github.com:$CIRCLE_PROJECT_USERNAME/$CIRCLE_PROJECT_REPONAME $CIRCLE_BRANCH; fi || true
