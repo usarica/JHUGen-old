@@ -2188,407 +2188,194 @@ subroutine amp_VVHVV(diag)
    complex(dp) :: ime
 
    real(dp) :: qV(1:4,1:4)
-   integer :: idV(1:4)
-   integer :: idA(1:4)
+   integer :: idV(1:4),idA(1:4),idSort(1:4)
    complex(dp) :: currentV(1:4,1:4) ! Current
    complex(dp) :: currentA(1:4,1:4) ! Current
-   complex(dp) :: ime_tmp(1:2)
+   complex(dp) :: ime_tmp(1:2),ime_acc
    complex(dp) :: currentH(1:4),qBack(1:4,1:3),qFront(1:4,1:3),cBack(1:4,1:3),cFront(1:4,1:3)
-   integer :: outTypeBack(1:2),outTypeFront(1:2),order(1:4),idBack(1:3),idFront(1:3),ic
+   integer :: outTypeBack(1:2),outTypeFront(1:2),order(1:4),idBack(1:3),idFront(1:3),ic.lineorder(1:4),iperm,nAonshells,iV,fstype(1:4)
+   integer :: nzgscomb,izgscomb.fstype_zgs(1:4)
    real(dp) :: qH(1:4)
 
    ime=czero
+   ime_acc=czero
    ime_tmp(:)=czero
    qH(:)=0_dp
    currentH(:)=czero ! This is just a dummy current
+   nAonshells=0 ! Keep track of how many gammas there are.
 
    do ic=1,4
-      qV(:,ic) = diag%VCurrent(ic)%pVertex(:) ! No need for qA since it is the same
-      idV(ic) = diag%VCurrent(ic)%idVertex
-      idA(ic) = diag%ACurrent(ic)%idVertex
-      currentV(:,ic) = diag%VCurrent(ic)%propcurrent(:)
-      currentA(:,ic) = diag%ACurrent(ic)%propcurrent(:)
+      qV(:,ic) = fullV(ic)%pVertex(:) ! No need for qA since it is the same
+      idV(ic) = fullV(ic)%idVertex
+      idA(ic) = fullA(ic)%idVertex
+      currentV(:,ic) = fullV(ic)%propcurrent(:)
+      currentA(:,ic) = fullA(ic)%propcurrent(:)
+      if(idA(ic).eq.Pho_ .and. fullA(ic)%isOnshellBoson) then
+         nAonshells = nAonshells+1
+         if(nAonshells.gt.3) return ! 4A states are not allowed since there have to be at least two fermions generating these diagrams
+         idSort(ic)=idA(ic)
+      else
+         idSort(ic)=idV(ic)
+      endif
    enddo
 
    ! Try (W+W-)-H-(W+W-)
-   order(:)=Id_Order(4,idV,(/ Wp_,Wm_,Wp_,Wm_ /))
+   order(:)=0
+   fstype(:)=(/ Wp_,Wm_,Wp_,Wm_ /)
+   order(:)=Id_Order(4,idSort,fstype)
    if(order(1).ne.0 .and. order(2).ne.0 .and. order(3).ne.0 .and. order(4).ne.0) then
-      outTypeBack(:)=(/Wp_,Wm_/);outTypeFront(:)=(/Wp_,Wm_/)
+      do iperm=1,2
+         if(iperm.eq.1) then
+            lineorder(:)=(/ 1,2,3,4 /)
+         else
+            lineorder(:)=(/ 1,4,3,2 /)
+         endif
+         outTypeBack(:)=(/ fstype(lineorder(1)),fstype(lineorder(2)) /);outTypeFront(:)=(/ fstype(lineorder(3)),fstype(lineorder(4)) /)
 
-      qH(:)=qV(:,order(3))+qV(:,order(4))
-      idBack(:)=(/Hig_,idV(order(1)),idV(order(2))/)
-      qBack(:,1)=qH(:)
-      qBack(:,2)=qV(:,order(1))
-      qBack(:,3)=qV(:,order(2))
-      cBack(:,1)=currentH(:)
-      cBack(:,2)=currentV(:,order(1))
-      cBack(:,3)=currentV(:,order(2))
-      idFront(:)=(/Hig_,idV(order(3)),idV(order(4))/)
-      qFront(:,1)=qH(:)
-      qFront(:,2)=qV(:,order(3))
-      qFront(:,3)=qV(:,order(4))
-      cFront(:,1)=currentH(:)
-      cFront(:,2)=currentV(:,order(3))
-      cFront(:,3)=currentV(:,order(4))
-      ime = ime + VVHVertex(qBack,cBack,idBack,outTypeBack)*VVHVertex(qFront,cFront,idFront,outTypeFront)*ScalarPropagator(Hig_,qH(:))
-
-      qH(:)=qV(:,order(3))+qV(:,order(2))
-      idBack(:)=(/Hig_,idV(order(1)),idV(order(4))/)
-      qBack(:,1)=qH(:)
-      qBack(:,2)=qV(:,order(1))
-      qBack(:,3)=qV(:,order(4))
-      cBack(:,1)=currentH(:)
-      cBack(:,2)=currentV(:,order(1))
-      cBack(:,3)=currentV(:,order(4))
-      idFront(:)=(/Hig_,idV(order(3)),idV(order(2))/)
-      qFront(:,1)=qH(:)
-      qFront(:,2)=qV(:,order(3))
-      qFront(:,3)=qV(:,order(2))
-      cFront(:,1)=currentH(:)
-      cFront(:,2)=currentV(:,order(3))
-      cFront(:,3)=currentV(:,order(2))
-      ime = ime + VVHVertex(qBack,cBack,idBack,outTypeBack)*VVHVertex(qFront,cFront,idFront,outTypeFront)*ScalarPropagator(Hig_,qH(:))
+         qH(:)=qV(:,order(lineorder(3)))+qV(:,order(lineorder(4)))
+         idBack(:)=(/Hig_,idV(order(lineorder(1))),idV(order(lineorder(2)))/)
+         qBack(:,1)=qH(:)
+         qBack(:,2)=qV(:,order(lineorder(1)))
+         qBack(:,3)=qV(:,order(lineorder(2)))
+         cBack(:,1)=currentH(:)
+         cBack(:,2)=currentV(:,order(lineorder(1)))
+         cBack(:,3)=currentV(:,order(lineorder(2)))
+         idFront(:)=(/Hig_,idV(order(lineorder(3))),idV(order(lineorder(4)))/)
+         qFront(:,1)=qH(:)
+         qFront(:,2)=qV(:,order(lineorder(3)))
+         qFront(:,3)=qV(:,order(lineorder(4)))
+         cFront(:,1)=currentH(:)
+         cFront(:,2)=currentV(:,order(lineorder(3)))
+         cFront(:,3)=currentV(:,order(lineorder(4)))
+         ime = ime + VVHVertex(qBack,cBack,idBack,outTypeBack)*VVHVertex(qFront,cFront,idFront,outTypeFront)*ScalarPropagator(Hig_,qH(:))
+      enddo
    endif
 
    ! Try (W+W-)-H-(ZZ)
-   order(:)=Id_Order(4,idV,(/ Wp_,Wm_,Z0_,Z0_ /))
+   order(:)=0
+   if(nAonshells.eq.0) then
+      fstype(:)=(/ Wp_,Wm_,Z0_,Z0_ /)
+      order(:)=Id_Order(4,idSort,fstype)
+   else if(nAonshells.eq.1) then
+      fstype(:)=(/ Wp_,Wm_,Z0_,Pho_ /)
+      order(:)=Id_Order(4,idSort,fstype)
+   endif
    if(order(1).ne.0 .and. order(2).ne.0 .and. order(3).ne.0 .and. order(4).ne.0) then
-      outTypeBack(:)=(/Wp_,Wm_/);outTypeFront(:)=(/Z0_,Z0_/)
+      lineorder(:)=(/1,2,3,4/)
+      outTypeBack(:)=(/ fstype(lineorder(1)),fstype(lineorder(2)) /)
 
-      qH(:)=qV(:,order(3))+qV(:,order(4))
-      idBack(:)=(/Hig_,idV(order(1)),idV(order(2))/)
+      ime_acc=czero
+      idBack(:)=(/Hig_,outTypeBack(1),outTypeBack(2)/)
+      qH(:)=qV(:,order(lineorder(3)))+qV(:,order(lineorder(4)))
       qBack(:,1)=qH(:)
-      qBack(:,2)=qV(:,order(1))
-      qBack(:,3)=qV(:,order(2))
-      cBack(:,1)=currentH(:)
-      cBack(:,2)=currentV(:,order(1))
-      cBack(:,3)=currentV(:,order(2))
-      idFront(:)=(/Hig_,idV(order(3)),idV(order(4))/)
       qFront(:,1)=qH(:)
-      qFront(:,2)=qV(:,order(3))
-      qFront(:,3)=qV(:,order(4))
+      cBack(:,1)=currentH(:)
       cFront(:,1)=currentH(:)
-      cFront(:,2)=currentV(:,order(3))
-      cFront(:,3)=currentV(:,order(4))
-      ime_tmp(1) = VVHVertex(qBack,cBack,idBack,outTypeBack)
-      ime_tmp(2) = VVHVertex(qFront,cFront,idFront,outTypeFront)
-      if(includeGammaStar) then
-         if(idA(order(3)).eq.Pho_) then
-            ! g*Z
-            outTypeFront(:)=(/Pho_,Z0_/)
-            idFront(:)=(/Hig_,idA(order(3)),idV(order(4))/)
-            cFront(:,2)=currentA(:,order(3))
-            cFront(:,3)=currentV(:,order(4))
-            ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront)
-         endif
+      do iV=1,2
+         qBack(:,iV+1)=qV(:,order(lineorder(iV)))
+         qFront(:,iV+1)=qV(:,order(lineorder(iV+2)))
+         cBack(:,iV+1)=currentV(:,order(lineorder(iV)))
+      enddo
 
-         if(idA(order(4)).eq.Pho_) then
-            ! Zg*
-            outTypeFront(:)=(/Z0_,Pho_/)
-            idFront(:)=(/Hig_,idV(order(3)),idA(order(4))/)
-            cFront(:,2)=currentV(:,order(3))
-            cFront(:,3)=currentA(:,order(4))
-            ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront)
+      nzgscomb = 2**(2-nAonshells)
+      do izgscomb=0,(nzgscomb-1)
+         if(.not.includeGammaStar .and. izgscomb.gt.0) then
+            exit
          endif
+         fstype_zgs=fstype
+         do iV=3,(4-nAonshells)
+            if(mod(ishft(i,-iV+3),2).eq.1) then
+               fstype_zgs(iV)=Pho_
+            endif
+         enddo
 
-         if(idA(order(3)).eq.Pho_ .and. idA(order(4)).eq.Pho_) then
-            ! g*g*
-            outTypeFront(:)=(/Pho_,Pho_/)
-            idFront(:)=(/Hig_,idA(order(3)),idA(order(4))/)
-            cFront(:,2)=currentA(:,order(3))
-            cFront(:,3)=currentA(:,order(4))
-            ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront)
-         endif
-
-         if(idA(order(3)).eq.Pho_ .or. idA(order(4)).eq.Pho_) then
-            ! Return back
-            outTypeFront(:)=(/Z0_,Z0_/)
-            idFront(:)=(/Hig_,idV(order(3)),idV(order(4))/)
-            cFront(:,2)=currentV(:,order(3))
-            cFront(:,3)=currentV(:,order(4))
-         endif
-      endif
-      ime = ime + ime_tmp(1)*ime_tmp(2)*ScalarPropagator(Hig_,qH(:))
-      ime_tmp(:)=czero
+         outTypeFront(:)=(/ fstype_zgs(lineorder(3)),fstype_zgs(lineorder(4)) /)
+         idFront(:)=(/Hig_,outTypeFront(1),outTypeFront(2)/)
+         do iV=3,4
+            if(outTypeFront(iV-2).eq.Z0_) then
+               cFront(:,iV-1)=currentV(:,order(lineorder(iV)))
+            else
+               cFront(:,iV-1)=currentA(:,order(lineorder(iV)))
+            endif
+         enddo
+         ime_acc = ime_acc + VVHVertex(qFront,cFront,idFront,outTypeFront)
+      enddo
+      ime = ime + VVHVertex(qBack,cBack,idBack,outTypeBack)*ime_acc*ScalarPropagator(Hig_,qH(:))
+      ime_acc=czero
    endif
 
    ! Try (ZZ)-H-(ZZ)
-   order(:)=Id_Order(4,idV,(/ Z0_,Z0_,Z0_,Z0_ /))
+   order(:)=0
+   ! It is important that Zs come first! The izgscomb algorithm depends on it.
+   if(nAonshells.eq.0) then
+      fstype(:)=(/ Z0_,Z0_,Z0_,Z0_ /)
+      order(:)=Id_Order(4,idSort,fstype)
+   else if(nAonshells.eq.1) then
+      fstype(:)=(/ Z0_,Z0_,Z0_,Pho_ /)
+      order(:)=Id_Order(4,idSort,fstype)
+   else if(nAonshells.eq.2) then
+      fstype(:)=(/ Z0_,Z0_,Pho_,Pho_ /)
+      order(:)=Id_Order(4,idSort,fstype)
+   else
+      fstype(:)=(/ Z0_,Pho_,Pho_,Pho_ /)
+      order(:)=Id_Order(4,idSort,fstype)
+   endif
    if(order(1).ne.0 .and. order(2).ne.0 .and. order(3).ne.0 .and. order(4).ne.0) then
-      outTypeBack(:)=(/Z0_,Z0_/);outTypeFront(:)=(/Z0_,Z0_/)
-
-      qH(:)=qV(:,order(3))+qV(:,order(4))
-      idBack(:)=(/Hig_,idV(order(1)),idV(order(2))/)
-      qBack(:,1)=qH(:)
-      qBack(:,2)=qV(:,order(1))
-      qBack(:,3)=qV(:,order(2))
-      cBack(:,1)=currentH(:)
-      cBack(:,2)=currentV(:,order(1))
-      cBack(:,3)=currentV(:,order(2))
-      idFront(:)=(/Hig_,idV(order(3)),idV(order(4))/)
-      qFront(:,1)=qH(:)
-      qFront(:,2)=qV(:,order(3))
-      qFront(:,3)=qV(:,order(4))
-      cFront(:,1)=currentH(:)
-      cFront(:,2)=currentV(:,order(3))
-      cFront(:,3)=currentV(:,order(4))
-      ime_tmp(1) = VVHVertex(qBack,cBack,idBack,outTypeBack)
-      ime_tmp(2) = VVHVertex(qFront,cFront,idFront,outTypeFront)
-      if(includeGammaStar) then
-         if(idA(order(1)).eq.Pho_) then
-            ! g*Z
-            outTypeBack(:)=(/Pho_,Z0_/)
-            idBack(:)=(/Hig_,idA(order(1)),idV(order(2))/)
-            cBack(:,2)=currentA(:,order(1))
-            cBack(:,3)=currentV(:,order(2))
-            ime_tmp(1) = ime_tmp(1) + VVHVertex(qBack,cBack,idBack,outTypeBack)
+      do iperm=1,3
+         if(iperm.eq.1) then
+            lineorder(:)=(/1,2,3,4/)
+         else if(iperm.eq.2) then
+            lineorder(:)=(/1,3,2,4/)
+         else
+            lineorder(:)=(/1,4,2,3/)
          endif
 
-         if(idA(order(2)).eq.Pho_) then
-            ! g*Z
-            outTypeBack(:)=(/Z0_,Pho_/)
-            idBack(:)=(/Hig_,idV(order(1)),idA(order(2))/)
-            cBack(:,2)=currentV(:,order(1))
-            cBack(:,3)=currentA(:,order(2))
-            ime_tmp(1) = ime_tmp(1) + VVHVertex(qBack,cBack,idBack,outTypeBack)
-         endif
+         ime_acc=czero
+         qH(:)=qV(:,order(lineorder(3)))+qV(:,order(lineorder(4)))
+         qBack(:,1)=qH(:)
+         qFront(:,1)=qH(:)
+         do iV=1,2
+            qBack(:,iV+1)=qV(:,order(lineorder(iV)))
+            qFront(:,iV+1)=qV(:,order(lineorder(iV+2)))
+         enddo
+         cBack(:,1)=currentH(:)
+         cFront(:,1)=currentH(:)
 
-         if(idA(order(1)).eq.Pho_ .and. idA(order(2)).eq.Pho_) then
-            ! g*g*
-            outTypeBack(:)=(/Pho_,Pho_/)
-            idBack(:)=(/Hig_,idA(order(1)),idA(order(2))/)
-            cBack(:,2)=currentA(:,order(1))
-            cBack(:,3)=currentA(:,order(2))
-            ime_tmp(1) = ime_tmp(1) + VVHVertex(qBack,cBack,idBack,outTypeBack)
-         endif
+         nzgscomb = 2**(4-nAonshells)
+         do izgscomb=0,(nzgscomb-1)
+            if(.not.includeGammaStar .and. izgscomb.gt.0) then
+               exit
+            endif
+            fstype_zgs=fstype
+            do iV=1,(4-nAonshells)
+               if(mod(ishft(i,-iV+1),2).eq.1) then
+                  fstype_zgs(iV)=Pho_
+               endif
+            enddo
+            outTypeBack(:)=(/ fstype_zgs(lineorder(1)),fstype_zgs(lineorder(2)) /)
+            outTypeFront(:)=(/ fstype_zgs(lineorder(3)),fstype_zgs(lineorder(4)) /)
 
-         if(idA(order(1)).eq.Pho_ .or. idA(order(2)).eq.Pho_) then
-            ! Return back
-            outTypeBack(:)=(/Z0_,Z0_/)
-            idBack(:)=(/Hig_,idV(order(1)),idV(order(2))/)
-            cBack(:,2)=currentV(:,order(1))
-            cBack(:,3)=currentV(:,order(2))
-         endif
-
-         if(idA(order(3)).eq.Pho_) then
-            ! g*Z
-            outTypeFront(:)=(/Pho_,Z0_/)
-            idFront(:)=(/Hig_,idA(order(3)),idV(order(4))/)
-            cFront(:,2)=currentA(:,order(3))
-            cFront(:,3)=currentV(:,order(4))
-            ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront)
-         endif
-
-         if(idA(order(4)).eq.Pho_) then
-            ! Zg*
-            outTypeFront(:)=(/Z0_,Pho_/)
-            idFront(:)=(/Hig_,idV(order(3)),idA(order(4))/)
-            cFront(:,2)=currentV(:,order(3))
-            cFront(:,3)=currentA(:,order(4))
-            ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront)
-         endif
-
-         if(idA(order(3)).eq.Pho_ .and. idA(order(4)).eq.Pho_) then
-            ! g*g*
-            outTypeFront(:)=(/Pho_,Pho_/)
-            idFront(:)=(/Hig_,idA(order(3)),idA(order(4))/)
-            cFront(:,2)=currentA(:,order(3))
-            cFront(:,3)=currentA(:,order(4))
-            ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront)
-         endif
-
-         if(idA(order(3)).eq.Pho_ .or. idA(order(4)).eq.Pho_) then
-            ! Return back
-            outTypeFront(:)=(/Z0_,Z0_/)
-            idFront(:)=(/Hig_,idV(order(3)),idV(order(4))/)
-            cFront(:,2)=currentV(:,order(3))
-            cFront(:,3)=currentV(:,order(4))
-         endif
-      endif
-      ime = ime + ime_tmp(1)*ime_tmp(2)*ScalarPropagator(Hig_,qH(:))
-      ime_tmp(:)=czero
-
-      qH(:)=qV(:,order(2))+qV(:,order(4))
-      idBack(:)=(/Hig_,idV(order(1)),idV(order(3))/)
-      qBack(:,1)=qH(:)
-      qBack(:,2)=qV(:,order(1))
-      qBack(:,3)=qV(:,order(3))
-      cBack(:,1)=currentH(:)
-      cBack(:,2)=currentV(:,order(1))
-      cBack(:,3)=currentV(:,order(3))
-      idFront(:)=(/Hig_,idV(order(2)),idV(order(4))/)
-      qFront(:,1)=qH(:)
-      qFront(:,2)=qV(:,order(2))
-      qFront(:,3)=qV(:,order(4))
-      cFront(:,1)=currentH(:)
-      cFront(:,2)=currentV(:,order(2))
-      cFront(:,3)=currentV(:,order(4))
-      ime_tmp(1) = VVHVertex(qBack,cBack,idBack,outTypeBack)
-      ime_tmp(2) = VVHVertex(qFront,cFront,idFront,outTypeFront)
-      if(includeGammaStar) then
-         if(idA(order(1)).eq.Pho_) then
-            ! g*Z
-            outTypeBack(:)=(/Pho_,Z0_/)
-            idBack(:)=(/Hig_,idA(order(1)),idV(order(3))/)
-            cBack(:,2)=currentA(:,order(1))
-            cBack(:,3)=currentV(:,order(3))
-            ime_tmp(1) = ime_tmp(1) + VVHVertex(qBack,cBack,idBack,outTypeBack)
-         endif
-
-         if(idA(order(3)).eq.Pho_) then
-            ! g*Z
-            outTypeBack(:)=(/Z0_,Pho_/)
-            idBack(:)=(/Hig_,idV(order(1)),idA(order(3))/)
-            cBack(:,2)=currentV(:,order(1))
-            cBack(:,3)=currentA(:,order(3))
-            ime_tmp(1) = ime_tmp(1) + VVHVertex(qBack,cBack,idBack,outTypeBack)
-         endif
-
-         if(idA(order(1)).eq.Pho_ .and. idA(order(3)).eq.Pho_) then
-            ! g*g*
-            outTypeBack(:)=(/Pho_,Pho_/)
-            idBack(:)=(/Hig_,idA(order(1)),idA(order(3))/)
-            cBack(:,2)=currentA(:,order(1))
-            cBack(:,3)=currentA(:,order(3))
-            ime_tmp(1) = ime_tmp(1) + VVHVertex(qBack,cBack,idBack,outTypeBack)
-         endif
-
-         if(idA(order(1)).eq.Pho_ .or. idA(order(3)).eq.Pho_) then
-            ! Return back
-            outTypeBack(:)=(/Z0_,Z0_/)
-            idBack(:)=(/Hig_,idV(order(1)),idV(order(3))/)
-            cBack(:,2)=currentV(:,order(1))
-            cBack(:,3)=currentV(:,order(3))
-         endif
-
-         if(idA(order(2)).eq.Pho_) then
-            ! g*Z
-            outTypeFront(:)=(/Pho_,Z0_/)
-            idFront(:)=(/Hig_,idA(order(2)),idV(order(4))/)
-            cFront(:,2)=currentA(:,order(2))
-            cFront(:,3)=currentV(:,order(4))
-            ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront)
-         endif
-
-         if(idA(order(4)).eq.Pho_) then
-            ! Zg*
-            outTypeFront(:)=(/Z0_,Pho_/)
-            idFront(:)=(/Hig_,idV(order(2)),idA(order(4))/)
-            cFront(:,2)=currentV(:,order(2))
-            cFront(:,3)=currentA(:,order(4))
-            ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront)
-         endif
-
-         if(idA(order(2)).eq.Pho_ .and. idA(order(4)).eq.Pho_) then
-            ! g*g*
-            outTypeFront(:)=(/Pho_,Pho_/)
-            idFront(:)=(/Hig_,idA(order(2)),idA(order(4))/)
-            cFront(:,2)=currentA(:,order(2))
-            cFront(:,3)=currentA(:,order(4))
-            ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront)
-         endif
-
-         if(idA(order(2)).eq.Pho_ .or. idA(order(4)).eq.Pho_) then
-            ! Return back
-            outTypeFront(:)=(/Z0_,Z0_/)
-            idFront(:)=(/Hig_,idV(order(2)),idV(order(4))/)
-            cFront(:,2)=currentV(:,order(2))
-            cFront(:,3)=currentV(:,order(4))
-         endif
-      endif
-      ime = ime + ime_tmp(1)*ime_tmp(2)*ScalarPropagator(Hig_,qH(:))
-      ime_tmp(:)=czero
-
-      qH(:)=qV(:,order(3))+qV(:,order(2))
-      idBack(:)=(/Hig_,idV(order(1)),idV(order(4))/)
-      qBack(:,1)=qH(:)
-      qBack(:,2)=qV(:,order(1))
-      qBack(:,3)=qV(:,order(4))
-      cBack(:,1)=currentH(:)
-      cBack(:,2)=currentV(:,order(1))
-      cBack(:,3)=currentV(:,order(4))
-      idFront(:)=(/Hig_,idV(order(3)),idV(order(2))/)
-      qFront(:,1)=qH(:)
-      qFront(:,2)=qV(:,order(3))
-      qFront(:,3)=qV(:,order(2))
-      cFront(:,1)=currentH(:)
-      cFront(:,2)=currentV(:,order(3))
-      cFront(:,3)=currentV(:,order(2))
-      ime_tmp(1) = VVHVertex(qBack,cBack,idBack,outTypeBack)
-      ime_tmp(2) = VVHVertex(qFront,cFront,idFront,outTypeFront)
-      if(includeGammaStar) then
-         if(idA(order(1)).eq.Pho_) then
-            ! g*Z
-            outTypeBack(:)=(/Pho_,Z0_/)
-            idBack(:)=(/Hig_,idA(order(1)),idV(order(4))/)
-            cBack(:,2)=currentA(:,order(1))
-            cBack(:,3)=currentV(:,order(4))
-            ime_tmp(1) = ime_tmp(1) + VVHVertex(qBack,cBack,idBack,outTypeBack)
-         endif
-
-         if(idA(order(4)).eq.Pho_) then
-            ! g*Z
-            outTypeBack(:)=(/Z0_,Pho_/)
-            idBack(:)=(/Hig_,idV(order(1)),idA(order(4))/)
-            cBack(:,2)=currentV(:,order(1))
-            cBack(:,3)=currentA(:,order(4))
-            ime_tmp(1) = ime_tmp(1) + VVHVertex(qBack,cBack,idBack,outTypeBack)
-         endif
-
-         if(idA(order(1)).eq.Pho_ .and. idA(order(4)).eq.Pho_) then
-            ! g*g*
-            outTypeBack(:)=(/Pho_,Pho_/)
-            idBack(:)=(/Hig_,idA(order(1)),idA(order(4))/)
-            cBack(:,2)=currentA(:,order(1))
-            cBack(:,3)=currentA(:,order(4))
-            ime_tmp(1) = ime_tmp(1) + VVHVertex(qBack,cBack,idBack,outTypeBack)
-         endif
-
-         if(idA(order(1)).eq.Pho_ .or. idA(order(4)).eq.Pho_) then
-            ! Return back
-            outTypeBack(:)=(/Z0_,Z0_/)
-            idBack(:)=(/Hig_,idV(order(1)),idV(order(4))/)
-            cBack(:,2)=currentV(:,order(1))
-            cBack(:,3)=currentV(:,order(4))
-         endif
-
-         if(idA(order(3)).eq.Pho_) then
-            ! g*Z
-            outTypeFront(:)=(/Pho_,Z0_/)
-            idFront(:)=(/Hig_,idA(order(3)),idV(order(2))/)
-            cFront(:,2)=currentA(:,order(3))
-            cFront(:,3)=currentV(:,order(2))
-            ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront)
-         endif
-
-         if(idA(order(2)).eq.Pho_) then
-            ! Zg*
-            outTypeFront(:)=(/Z0_,Pho_/)
-            idFront(:)=(/Hig_,idV(order(3)),idA(order(2))/)
-            cFront(:,2)=currentV(:,order(3))
-            cFront(:,3)=currentA(:,order(2))
-            ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront)
-         endif
-
-         if(idA(order(3)).eq.Pho_ .and. idA(order(2)).eq.Pho_) then
-            ! g*g*
-            outTypeFront(:)=(/Pho_,Pho_/)
-            idFront(:)=(/Hig_,idA(order(3)),idA(order(2))/)
-            cFront(:,2)=currentA(:,order(3))
-            cFront(:,3)=currentA(:,order(2))
-            ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront)
-         endif
-
-         if(idA(order(3)).eq.Pho_ .or. idA(order(2)).eq.Pho_) then
-            ! Return back
-            outTypeFront(:)=(/Z0_,Z0_/)
-            idFront(:)=(/Hig_,idV(order(3)),idV(order(2))/)
-            cFront(:,2)=currentV(:,order(3))
-            cFront(:,3)=currentV(:,order(2))
-         endif
-      endif
-      ime = ime + ime_tmp(1)*ime_tmp(2)*ScalarPropagator(Hig_,qH(:))
-      ime_tmp(:)=czero
+            idBack(:)=(/Hig_,outTypeBack(1),outTypeBack(2)/)
+            idFront(:)=(/Hig_,outTypeFront(1),outTypeFront(2)/)
+            do iV=1,2
+               if(outTypeBack(iV).eq.Z0_) then
+                  cBack(:,iV+1)=currentV(:,order(lineorder(iV)))
+               else
+                  cBack(:,iV+1)=currentA(:,order(lineorder(iV)))
+               endif
+            enddo
+            do iV=3,4
+               if(outTypeFront(iV-2).eq.Z0_) then
+                  cFront(:,iV-1)=currentV(:,order(lineorder(iV)))
+               else
+                  cFront(:,iV-1)=currentA(:,order(lineorder(iV)))
+               endif
+            enddo
+            ime_acc = ime_acc + VVHVertex(qBack,cBack,idBack,outTypeBack)*VVHVertex(qFront,cFront,idFront,outTypeFront)
+         enddo
+         ime = ime + ime_acc*ScalarPropagator(Hig_,qH(:))
+      enddo
+      ime_acc=czero
    endif
 
    diag%Asig = diag%Asig + diag%permutation_factor*ime
@@ -2606,9 +2393,9 @@ subroutine amp_WWZZ(diag)
    complex(dp) :: ime
 
    do ic=1,4
-      qV(:,ic) = diag%VCurrent(ic)%pVertex(:) ! No need for qA since it is the same
-      idV(ic) = diag%VCurrent(ic)%idVertex
-      currentV(:,ic) = diag%VCurrent(ic)%propcurrent(:)
+      qV(:,ic) = fullV(ic)%pVertex(:) ! No need for qA since it is the same
+      idV(ic) = fullV(ic)%idVertex
+      currentV(:,ic) = fullV(ic)%propcurrent(:)
    enddo
 
    ime = QuarticEWKVertex(currentV, idV, (/ Z0_, Z0_ /))
@@ -2629,18 +2416,18 @@ subroutine amp_WWAA(diag)
    nWs=0
    nAs=0
    do ic=1,4
-      idV(ic) = diag%VCurrent(ic)%idVertex
-      idA(ic) = diag%ACurrent(ic)%idVertex
+      idV(ic) = fullV(ic)%idVertex
+      idA(ic) = fullA(ic)%idVertex
       if(idV(ic).eq.Wp_ .or. idV(ic).eq.Wm_) then
          nWs = nWs+1
          if(nWs.gt.2) return
          idVA(ic)=idV(ic)
-         currentVA(:,ic)=diag%VCurrent(ic)%propcurrent(:)
+         currentVA(:,ic)=fullV(ic)%propcurrent(:)
       else if(idA(ic).eq.Pho_) then
          nAs = nAs+1
          if(nAs.gt.2) return
          idVA(ic)=idA(ic)
-         currentVA(:,ic)=diag%ACurrent(ic)%propcurrent(:)
+         currentVA(:,ic)=fullA(ic)%propcurrent(:)
       endif
    enddo
    if(nAs.ne.2 .and. nWs.ne.2) return
@@ -2663,19 +2450,19 @@ subroutine amp_WWZA(diag)
    nWs=0
    nAs=0
    do ic=1,4
-      idV(ic) = diag%VCurrent(ic)%idVertex
-      idA(ic) = diag%ACurrent(ic)%idVertex
+      idV(ic) = fullV(ic)%idVertex
+      idA(ic) = fullA(ic)%idVertex
       if(idV(ic).eq.Wp_ .or. idV(ic).eq.Wm_) then
          nWs = nWs+1
          if(nWs.gt.2) return
          idVA(ic)=idV(ic)
-         currentVA(:,ic)=diag%VCurrent(ic)%propcurrent(:)
+         currentVA(:,ic)=fullV(ic)%propcurrent(:)
       else if(idA(ic).eq.Pho_) then
          nAs = nAs+1
          if(nAs.gt.2) return
          markA(nAs)=ic
          !idVA(ic)=idA(ic)
-         !currentVA(:,ic)=diag%ACurrent(ic)%propcurrent(:)
+         !currentVA(:,ic)=fullA(ic)%propcurrent(:)
       endif
    enddo
    if(nWs.ne.2) return
@@ -2683,8 +2470,8 @@ subroutine amp_WWZA(diag)
    do ic=1,2
       idVA(markA(ic))=idA(markA(ic))
       idVA(markA(3-ic))=idV(markA(3-ic))
-      currentVA(:,markA(ic))=diag%ACurrent(markA(ic))%propcurrent(:)
-      currentVA(:,markA(3-ic))=diag%VCurrent(markA(3-ic))%propcurrent(:)
+      currentVA(:,markA(ic))=fullA(markA(ic))%propcurrent(:)
+      currentVA(:,markA(3-ic))=fullV(markA(3-ic))%propcurrent(:)
       ime = ime + QuarticEWKVertex(currentVA, idVA, (/ Z0_, Pho_ /))
    enddo
 
@@ -2708,11 +2495,11 @@ subroutine amp_WWWW(diag)
    ime_WW_A_WW = czero
 
    do ic=1,4
-      qV(:,ic) = diag%VCurrent(ic)%pVertex(:) ! No need for qA since it is the same
-      idV(ic) = diag%VCurrent(ic)%idVertex
-      currentV(:,ic) = diag%VCurrent(ic)%propcurrent(:)
-      !idA(ic) = diag%ACurrent(ic)%idVertex
-      !currentA(:,ic) = diag%ACurrent(ic)%propcurrent(:)
+      qV(:,ic) = fullV(ic)%pVertex(:) ! No need for qA since it is the same
+      idV(ic) = fullV(ic)%idVertex
+      currentV(:,ic) = fullV(ic)%propcurrent(:)
+      !idA(ic) = fullA(ic)%idVertex
+      !currentA(:,ic) = fullA(ic)%propcurrent(:)
    enddo
 
    outType(:) = (/ Wp_, Wm_ /)
@@ -2785,16 +2572,12 @@ subroutine amp_WW_V_VV(diag)
    integer :: idV(1:4),idA(1:4),idSort(1:4)
    real(dp) :: qtV(1:4),qV(1:4,1:4)
    complex(dp) :: currentV(1:4,1:4),currentA(1:4,1:4)
-   !type(VACurrent) :: fullV(1:4),fullA(1:4)
    integer :: ic,iz,nAonshells,order(1:4)
    complex(dp) :: composite(1:4,1:2),ime
 
    ime=czero
    nAonshells=0
    do ic=1,4
-      !fullV(ic)=diag%VCurrent(ic)
-      !fullA(ic)=diag%ACurrent(ic)
-
       currentV(:,ic)=fullV(ic)%propcurrent(:)
       currentA(:,ic)=fullA(ic)%propcurrent(:)
 
@@ -2874,16 +2657,12 @@ subroutine amp_tVVV(diag)
    integer :: idV(1:4),idA(1:4),idSort(1:4),idSort_loose(1:4)
    real(dp) :: qV(1:4,1:4),qtchannel(1:4)
    complex(dp) :: currentV(1:4,1:4),currentA(1:4,1:4)
-   !type(VACurrent) :: fullV(1:4),fullA(1:4)
    integer :: ic,iperm,nLoose,nAonshells,order(1:4),lineorder(1:4)
    complex(dp) :: composite(1:4,1:4),ime
 
    ime=czero
    nAonshells=0
    do ic=1,4
-      !fullV(ic)=diag%VCurrent(ic)
-      !fullA(ic)=diag%ACurrent(ic)
-
       currentV(:,ic)=fullV(ic)%propcurrent(:)
       currentA(:,ic)=fullA(ic)%propcurrent(:)
 
@@ -2904,7 +2683,7 @@ subroutine amp_tVVV(diag)
 
       if(idA(ic).eq.Pho_ .and. fullA(ic)%isOnshellBoson) then
          nAonshells = nAonshells+1
-         if(nAonshells.gt.3) return ! 4A states are not allowed since there has to be at least two fermions generating these diagrams
+         if(nAonshells.gt.3) return ! 4A states are not allowed since there have to be at least two fermions generating these diagrams
          idSort(ic)=idA(ic)
       else
          idSort(ic)=idV(ic)
@@ -2930,8 +2709,6 @@ subroutine amp_tVVV(diag)
          order(:)=Id_Order(4,idSort,(/ Z0_,Z0_,Z0_,Z0_ /)) ! Z0_ is dummy here, just to ensure identical fermions are present.
       else if(nAonshells.eq.1) then
          order(:)=Id_Order(4,idSort,(/ Z0_,Z0_,Z0_,Pho_ /)) ! Z0_ is dummy here, just to ensure identical fermions are present.
-      else if(nAonshells.eq.2) then
-         order(:)=Id_Order(4,idSort,(/ Z0_,Pho_,Z0_,Pho_ /)) ! Z0_ is dummy here, just to ensure identical fermions are present.
       else
          order(:)=Id_Order(4,idSort,(/ Z0_,Pho_,Z0_,Pho_ /)) ! Z0_ is dummy here, just to ensure identical fermions are present.
       endif
