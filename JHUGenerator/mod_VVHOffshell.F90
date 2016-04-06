@@ -2193,8 +2193,8 @@ subroutine amp_VVHVV(diag)
    complex(dp) :: currentA(1:4,1:4) ! Current
    complex(dp) :: ime_tmp(1:2),ime_acc
    complex(dp) :: currentH(1:4),qBack(1:4,1:3),qFront(1:4,1:3),cBack(1:4,1:3),cFront(1:4,1:3)
-   integer :: outTypeBack(1:2),outTypeFront(1:2),order(1:4),idBack(1:3),idFront(1:3),ic.lineorder(1:4),iperm,nAonshells,iV,fstype(1:4)
-   integer :: nzgscomb,izgscomb.fstype_zgs(1:4)
+   integer :: outTypeBack(1:2),outTypeFront(1:2),order(1:4),idBack(1:3),idFront(1:3),ic,lineorder(1:4),iperm,nAonshells,iV,fstype(1:4)
+   integer :: nzgscomb,izgscomb,fstype_zgs(1:4)
    real(dp) :: qH(1:4)
 
    ime=czero
@@ -2284,7 +2284,7 @@ subroutine amp_VVHVV(diag)
          endif
          fstype_zgs=fstype
          do iV=3,(4-nAonshells)
-            if(mod(ishft(i,-iV+3),2).eq.1) then
+            if(mod(ishft(izgscomb,-iV+3),2).eq.1) then
                fstype_zgs(iV)=Pho_
             endif
          enddo
@@ -2348,7 +2348,7 @@ subroutine amp_VVHVV(diag)
             endif
             fstype_zgs=fstype
             do iV=1,(4-nAonshells)
-               if(mod(ishft(i,-iV+1),2).eq.1) then
+               if(mod(ishft(izgscomb,-iV+1),2).eq.1) then
                   fstype_zgs(iV)=Pho_
                endif
             enddo
