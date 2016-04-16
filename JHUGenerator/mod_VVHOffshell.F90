@@ -3,6 +3,7 @@ use ModParameters
 use ModMisc
 implicit none
 
+#define fullH diag%HCurrent
 #define fullV diag%VCurrent
 #define fullA diag%ACurrent
 
@@ -21,7 +22,11 @@ private
    real(8), parameter :: eW_cW = eW/cw ! g/costw
 
    ! Temporary parameters
-   logical, parameter :: doSignal = .true.
+   logical, parameter :: do1HVertex = .true. ! HVV or Hff
+   logical, parameter :: do2HVertex = .true. ! HHVV
+   logical, parameter :: do3HVertex = .true. ! HHH
+   logical, parameter :: do4HVertex = .true. ! HHHH
+   logical, parameter :: doSignal = (do1HVertex .or. do2HVertex .or. do3HVertex .or. do4HVertex)
    logical, parameter :: doBkg = .true.
 
    type :: IntPtr
@@ -43,6 +48,29 @@ private
       complex(dp), dimension(:), pointer :: ref
    end type
 
+   type :: ScalarCurrent
+      ! Inputs to store
+      real(dp) :: p(1:4,1:2)
+      integer :: id(1:2)
+      integer :: hel
+      ! Outputs to use further
+      integer :: idVertex ! =Not_a_particle_ if the vertex is strictly not valid
+      real(dp) :: pVertex(1:4)
+      complex(dp) :: Ub(1:4)
+      complex(dp) :: V(1:4)
+
+      ! Vector current
+      complex(dp) :: scprefactor
+      complex(dp) :: pscprefactor
+      complex(dp) :: current
+      complex(dp) :: prop ! ScalarPropagator
+      complex(dp) :: propcurrent ! prop*current
+
+      contains
+         procedure :: init_ScalarCurrent
+         procedure, nopass :: reset_ScalarCurrent
+   end type
+
    type :: VACurrent
       ! Inputs to store
       real(dp) :: p(1:4,1:2)
@@ -61,14 +89,10 @@ private
       complex(dp) :: current(1:4)
       complex(dp) :: prop ! ScalarPropagator
       complex(dp) :: propcurrent(1:4) ! VertexPropagator
-      ! Scalar coupling
-      complex(dp) :: scalarcurrentprefactor
-      complex(dp) :: scalarcurrent
-      complex(dp) :: scalarprop
-      complex(dp) :: scalarpropcurrent
 
       contains
          procedure :: init_VACurrent
+         procedure, nopass :: reset_VACurrent
    end type
 
    type :: VACurrentPtr
@@ -76,27 +100,24 @@ private
    end type
 
    type :: Single4VDiagram
+      type(ScalarCurrent) :: HCurrent(1:4)
       type(VACurrent) :: VCurrent(1:4)
       type(VACurrent) :: ACurrent(1:4)
       real(dp) :: p(1:4,1:2,1:4)
       integer :: id(1:2,1:4)
       integer :: hel(1:4)
       real(dp) :: permutation_factor
-      complex(dp) :: Asig
-      complex(dp) :: Abkg
+      complex(dp) :: Amplitude
 
       contains
          procedure :: init_Single4VDiagram
-         procedure :: computeSignalContributions
-         procedure :: computeBackgroundContributions
+         procedure :: computeContributions
 
          procedure, nopass :: amp_VVHVV ! Signal VV.H.VV
 
-         procedure, nopass :: amp_WWZZ ! Background WW.ZZ
-         procedure, nopass :: amp_WWAA ! Background WW.AA
          procedure, nopass :: amp_WWZA ! Background WW.ZA+WW.AZ
          procedure, nopass :: amp_WWWW ! Background WW.WW+W1W2.Z.W3W4+W1W2.A.W3W4+W1W4.Z.W3W2+W1W4.A.W3W2
-         procedure, nopass :: amp_WW_V_VV
+         procedure, nopass :: amp_VV_VtVp
          procedure, nopass :: amp_tVVV
    end type
 
@@ -109,7 +130,7 @@ private
    end type
 
 !----- List of  subroutines
-   public :: amp_WWZZ, amp_WWAA, amp_WWZA, amp_WWWW, amp_WW_V_VV, amp_tVVV
+   public :: amp_WWZA, amp_WWWW, amp_VV_VtVp, amp_tVVV
 !  public :: EvalAmp_VVHOffshell
 
 contains
@@ -165,6 +186,70 @@ SUBROUTINE NEXPER(N, A, MTC, EVEN)
    RETURN
 END SUBROUTINE NEXPER
 
+subroutine init_ScalarCurrent(cur, p, id, hel, Ub, V)
+   implicit none
+   class(ScalarCurrent) :: cur
+   real(dp), intent(in) :: p(1:4,1:2)
+   integer, intent(in) :: id(1:2)
+   integer, intent(in) :: hel
+   complex(dp), intent(in) :: Ub(1:4)
+   complex(dp), intent(in) :: V(1:4)
+   integer :: idc(1:2)
+   logical :: isValid
+
+   isValid=.false.
+   idc(1)=convertLHE(id(1))
+   idc(2)=convertLHE(id(2))
+
+   if(idc(1).gt.0 .and. idc(1).eq.-idc(2)) then ! f-fb
+      cur%p=p
+      cur%id=id
+      isValid=.true.
+   else if(idc(1).lt.0 .and. idc(1).eq.-idc(2)) then
+      cur%p(:,1)=p(:,2)
+      cur%id(1)=id(2)
+      cur%p(:,2)=p(:,1)
+      cur%id(2)=id(1)
+      isValid=.true.
+   endif
+   if(isValid) then
+      cur%hel=hel
+      cur%Ub(:)=Ub
+      cur%V(:)=V
+      cur%pVertex(1:4)=p(1:4,1)+p(1:4,2)
+      cur%idVertex=Hig_
+      cur%prop = ScalarPropagator(cur%idVertex,cur%pVertex)
+      cur%current = HFFCurrent(cur%id,cur%Ub,cur%V,prefactor_s_out=cur%scprefactor,prefactor_ps_out=cur%pscprefactor)
+      cur%propcurrent = cur%current*cur%prop
+      if(cur%scprefactor.eq.czero .and. cur%pscprefactor.eq.czero) then
+         call reset_ScalarCurrent(cur)
+      endif
+   else
+      call reset_ScalarCurrent(cur)
+   endif
+   return
+end subroutine init_ScalarCurrent
+
+subroutine reset_ScalarCurrent(cur)
+   implicit none
+   class(ScalarCurrent) :: cur
+
+   cur%p(:,:)=0d0
+   cur%id(:)=Not_a_particle_
+   cur%hel=0
+   cur%idVertex=Not_a_particle_
+   cur%pVertex(:)=0d0
+   cur%Ub(:)=czero
+   cur%V(:)=czero
+   cur%scprefactor=czero
+   cur%pscprefactor=czero
+   cur%current=czero
+   cur%prop=czero
+   cur%propcurrent=czero
+
+   return
+end subroutine reset_ScalarCurrent
+
 subroutine init_VACurrent(cur, p, id, hel, useA)
    implicit none
    class(VACurrent) :: cur
@@ -195,41 +280,46 @@ subroutine init_VACurrent(cur, p, id, hel, useA)
       cur%pVertex(1:4)=p(1:4,1)+p(1:4,2)
       cur%current = Vcurrent(cur%p,cur%id,cur%hel,cur%idVertex,idV_flavorviolating=cur%idVertex_flavorviolating,useAcoupl=useA,Ub_out=cur%Ub,V_out=cur%V,prefactor_out=cur%prefactor, isOnshellV=cur%isOnshellBoson)
       if(cur%isOnshellBoson) then
-         cur%current = pol_massless(cur%pVertex,cur%hel)
+         cur%current = pol_massless(cur%pVertex,cur%hel) ! current needs to be re-calculated
+         cur%current(:) = conjg(cur%current(:)) ! Make polarization outgoing
          cur%prop = cone
          cur%propcurrent = cur%current
-
-         cur%scalarcurrentprefactor = czero
-         cur%scalarcurrent = czero
-         cur%scalarprop = czero
-         cur%scalarpropcurrent = czero
       else
          cur%propcurrent = VectorPropagator(cur%idVertex,cur%pVertex,cur%current,scprop=cur%prop)
 
-         cur%scalarcurrent = HFFCurrent(cur%id,cur%Ub,cur%V,prefactor_out=cur%scalarcurrentprefactor)
-         cur%scalarprop = ScalarPropagator(Hig_, cur%pVertex)
-         cur%scalarpropcurrent = cur%scalarprop*cur%scalarcurrent
+         if(cur%idVertex.eq.Pho_ .and. .not.includeGammaStar) then ! Already passes off-shellness; make sure off-shell photons are not present if includeGammaStar is false.
+            call reset_VACurrent(cur)
+         endif
+      endif
+
+      if(cur%idVertex_flavorviolating.eq.Not_a_particle_ .and. cur%prefactor.eq.czero) then ! If it is flavor-violating, prefactor would be 0. Otherwise, it would be 1 for on-shell and something else for off-shell.
+         call reset_VACurrent(cur)
       endif
    else
-      cur%p(:,:)=0d0
-      cur%id(:)=Not_a_particle_
-      cur%hel=0
-      cur%idVertex=Not_a_particle_
-      cur%idVertex_flavorviolating=Not_a_particle_
-      cur%pVertex(:)=0d0
-      cur%Ub(:)=czero
-      cur%V(:)=czero
-      cur%current(:)=czero
-      cur%prop=czero
-      cur%propcurrent(:)=czero
-
-      cur%scalarcurrentprefactor = czero
-      cur%scalarcurrent = czero
-      cur%scalarprop = czero
-      cur%scalarpropcurrent = czero
+      call reset_VACurrent(cur)
    endif
    return
 end subroutine init_VACurrent
+
+subroutine reset_VACurrent(cur)
+   implicit none
+   class(VACurrent) :: cur
+
+   cur%p(:,:)=0d0
+   cur%id(:)=Not_a_particle_
+   cur%hel=0
+   cur%idVertex=Not_a_particle_
+   cur%idVertex_flavorviolating=Not_a_particle_
+   cur%pVertex(:)=0d0
+   cur%Ub(:)=czero
+   cur%V(:)=czero
+   cur%prefactor=czero
+   cur%current(:)=czero
+   cur%prop=czero
+   cur%propcurrent(:)=czero
+
+   return
+end subroutine reset_VACurrent
 
 subroutine init_Single4VDiagram(diag, ptmp, idtmp, hel, even)
    implicit none
@@ -243,8 +333,7 @@ subroutine init_Single4VDiagram(diag, ptmp, idtmp, hel, even)
    integer :: iV, mu, ipair(1:2),j
    logical :: useAcoupl
 
-   diag%Asig=czero
-   diag%Abkg=czero
+   diag%Amplitude=czero
 
    do iV=1,4
       ipair(1) = iV*2-1
@@ -255,6 +344,14 @@ subroutine init_Single4VDiagram(diag, ptmp, idtmp, hel, even)
       enddo
       call diag%VCurrent(iV)%init_VACurrent(pin,idin,hel(iV),.false.)
       call diag%ACurrent(iV)%init_VACurrent(pin,idin,hel(iV),.true.)
+      if( & ! Try gamma* first
+         (diag%ACurrent(iV)%idVertex.ne.Not_a_particle_ .or. diag%ACurrent(iV)%idVertex_flavorviolating.ne.Not_a_particle_) .and. &
+         .not.diag%ACurrent(iV)%isOnshellBoson &
+         ) then
+         call diag%HCurrent(iV)%init_ScalarCurrent(pin,idin,hel(iV),diag%ACurrent(iV)%Ub, diag%ACurrent(iV)%V)
+      else
+         call diag%HCurrent(iV)%init_ScalarCurrent(pin,idin,hel(iV),diag%VCurrent(iV)%Ub, diag%VCurrent(iV)%V)
+      endif
    enddo
 
    if (even) then
@@ -266,32 +363,21 @@ subroutine init_Single4VDiagram(diag, ptmp, idtmp, hel, even)
    return
 end subroutine init_Single4VDiagram
 
-subroutine computeSignalContributions(diag)
+subroutine computeContributions(diag)
    implicit none
    class(Single4VDiagram) :: diag
    if(.not.doSignal) return
 
    call amp_VVHVV(diag)
 
-   return
-end subroutine
-
-
-subroutine computeBackgroundContributions(diag)
-   implicit none
-   class(Single4VDiagram) :: diag
-   if(.not.doBkg) return
-
-   call amp_WWZZ(diag)
-   call amp_WWAA(diag)
    call amp_WWZA(diag)
    call amp_WWWW(diag)
-
-   call amp_WW_V_VV(diag)
+   call amp_VV_VtVp(diag)
    call amp_tVVV(diag)
 
    return
-end subroutine computeBackgroundContributions
+end subroutine
+
 
 subroutine init_Diagrams(tree,MomExt,MY_IDUP,hel,npart)
    implicit none
@@ -434,7 +520,7 @@ function gammaMatrix()
    implicit none
    complex(dp) :: gammaMatrix(1:4,1:4,1:4)
 
-   gammaMatrix(:,:,:)=0_dp
+   gammaMatrix(:,:,:)=czero
 
    gammaMatrix(1,1,3)=1_dp ! gamma^0
    gammaMatrix(1,2,4)=1_dp
@@ -459,7 +545,7 @@ function gammaFive(scl)
    complex(dp) :: gammaFive(1:4,1:4)
    complex(dp), optional :: scl
 
-   gammaFive(:,:)=0_dp
+   gammaFive(:,:)=czero
 
    if( present(scl) ) then
       gammaFive(1,1)=scl
@@ -479,19 +565,18 @@ function gammaMatrixDotted(p)
    complex(dp) :: gammaMatrixDotted(1:4,1:4)
    complex(dp), intent(in) :: p(1:4)
 
-   gammaMatrixDotted(:,:)=0_dp
+   gammaMatrixDotted(:,:)=czero
 
+   ! The coefficients of p(2-4) receive a (-) sign wrt. gammaMatrix() bc. of g_munu.
    gammaMatrixDotted(1,3)=p(1)+p(4)
-   gammaMatrixDotted(3,1)=p(1)-p(4)
-
    gammaMatrixDotted(2,4)=p(1)-p(4)
+   gammaMatrixDotted(3,1)=p(1)-p(4)
    gammaMatrixDotted(4,2)=p(1)+p(4)
 
    gammaMatrixDotted(1,4)=p(2)-ci*p(3)
-   gammaMatrixDotted(4,1)=-p(2)-ci*p(3)
-
    gammaMatrixDotted(2,3)=p(2)+ci*p(3)
    gammaMatrixDotted(3,2)=-p(2)+ci*p(3)
+   gammaMatrixDotted(4,1)=-p(2)-ci*p(3)
 
    return
 end function gammaMatrixDotted
@@ -547,7 +632,7 @@ function gamma_gamma_mu(N,p,ubar,v,whichUndotted,massMatrix,gammaFiveMatrix)
    integer :: iUndotted,a,b,i,j,mu
    complex(dp) :: gamma(1:4,1:4,1:4),gamma_tmp(1:4,1:4,2:N),gtmp(1:4,1:4,1:4),gacc(1:4,1:4,1:4)
 
-   gamma_gamma_mu=czero
+   gamma_gamma_mu(:)=czero
    if(N.lt.2) return
    iUndotted=1
    if( present(whichUndotted) ) then
@@ -565,12 +650,12 @@ function gamma_gamma_mu(N,p,ubar,v,whichUndotted,massMatrix,gammaFiveMatrix)
          gamma_tmp(:,:,j) = gammaMatrixDotted(p(:,j)) ! gamma(1,:,:)*p(1,j) - gamma(2,:,:)*p(2,j) - gamma(3,:,:)*p(3,j) - gamma(4,:,:)*p(4,j) ! (gamma^mu p_i_mu)_ab
          if( present(massMatrix) ) then
             if(massMatrix(j).ne.czero) then
-               gamma_tmp(:,:,i) = gamma_tmp(:,:,i) + identityMatrix(massMatrix(j))
+               gamma_tmp(:,:,j) = gamma_tmp(:,:,i) + identityMatrix(massMatrix(j))
             endif
          endif
          if( present(gammaFiveMatrix) ) then
             if(gammaFiveMatrix(j).ne.czero) then
-               gamma_tmp(:,:,i) = gamma_tmp(:,:,i) + gammaFive(gammaFiveMatrix(j))
+               gamma_tmp(:,:,j) = gamma_tmp(:,:,i) + gammaFive(gammaFiveMatrix(j))
             endif
          endif
          j=j+1
@@ -599,11 +684,83 @@ function gamma_gamma_mu(N,p,ubar,v,whichUndotted,massMatrix,gammaFiveMatrix)
 
    do a=1,4
       do b=1,4
-         gamma_gamma_mu(:) = gamma_gamma_mu(:) + ubar(a)*gacc(:,a,b)*v(b) ! Returns a 4-vector in the end
+         do mu=1,4
+            gamma_gamma_mu(mu) = gamma_gamma_mu(mu) + ubar(a)*gacc(mu,a,b)*v(b) ! Returns a 4-vector in the end
+         enddo
       enddo
    enddo
    return
 end function gamma_gamma_mu
+
+function gamma_dotted(N,p,massMatrix,gammaFiveMatrix)
+   implicit none
+   integer, intent(in) :: N
+   complex(dp), intent(in) :: p(1:4,1:N)
+   complex(dp), optional :: massMatrix(1:N)
+   complex(dp), optional :: gammaFiveMatrix(1:N)
+   complex(dp) :: gamma_dotted(1:4,1:4)
+   integer :: a,b,i
+   complex(dp) :: gamma_tmp(1:4,1:4,1:N)
+
+   gamma_dotted=czero
+   if(N.lt.1) then
+      gamma_dotted=identityMatrix()
+      return
+   endif
+
+   ! Now construct gamma_slash
+   do i=1,N
+      gamma_tmp(:,:,i) = gammaMatrixDotted(p(:,i)) ! gamma(1,:,:)*p(1,j) - gamma(2,:,:)*p(2,j) - gamma(3,:,:)*p(3,j) - gamma(4,:,:)*p(4,j) ! (gamma^mu p_i_mu)_ab
+      if( present(massMatrix) ) then
+         if(massMatrix(i).ne.czero) then
+            gamma_tmp(:,:,i) = gamma_tmp(:,:,i) + identityMatrix(massMatrix(i))
+         endif
+      endif
+      if( present(gammaFiveMatrix) ) then
+         if(gammaFiveMatrix(i).ne.czero) then
+            gamma_tmp(:,:,i) = gamma_tmp(:,:,i) + gammaFive(gammaFiveMatrix(i))
+         endif
+      endif
+   enddo
+
+   gamma_dotted=gamma_tmp(:,:,1)
+   if(N.gt.1) then
+      do i=2,N
+         gamma_dotted(:,:) = MultiplySquareMatrices(4,gamma_dotted(:,:),gamma_tmp(:,:,i))
+      enddo
+   endif
+   return
+end function gamma_dotted
+
+function gamma_dotted_contracted(N,p,ubar,v,massM,gFiveM)
+   implicit none
+   integer, intent(in) :: N
+   complex(dp), intent(in) :: p(1:4,1:N)
+   complex(dp), intent(in) :: ubar(1:4),v(1:4)
+   complex(dp), optional :: massM(1:N)
+   complex(dp), optional :: gFiveM(1:N)
+   complex(dp) :: gamma_dotted_contracted
+   integer :: a,b,i
+   complex(dp) :: gamma_tmp(1:4,1:4,1:N),gacc(1:4,1:4)
+
+   gamma_dotted_contracted=czero
+   if( present(massM) .and. present(gFiveM) ) then
+      gacc=gamma_dotted(N,p,massMatrix=massM,gammaFiveMatrix=gFiveM)
+   else if( present(gFiveM) ) then
+      gacc=gamma_dotted(N,p,gammaFiveMatrix=gFiveM)
+   else if( present(massM) ) then
+      gacc=gamma_dotted(N,p,massMatrix=massM)
+   else
+      gacc=gamma_dotted(N,p)
+   endif
+
+   do a=1,4
+      do b=1,4
+         gamma_dotted_contracted = gamma_dotted_contracted + ubar(a)*gacc(a,b)*v(b)
+      enddo
+   enddo
+   return
+end function gamma_dotted_contracted
 
 
 function CoupledVertex(id,hel,useAHcoupl)
@@ -866,7 +1023,7 @@ function ubar0(p,i)
    integer, intent(in) :: i
    complex(dp) :: ubar0(4)
    complex(dp) :: fc, fc2
-   real(dp)   :: p0,px,py,pz
+   real(dp) :: p0,px,py,pz
 
    p0=real(p(1),dp)
    px=real(p(2),dp)
@@ -915,7 +1072,7 @@ function ubarm(cp,i)
    integer, intent(in) :: i
    complex(dp) :: ubarm(4)
    complex(dp) :: fc2
-   real(dp)   :: E,x,y,z,m,p,fac
+   real(dp) :: E,x,y,z,m,p,fac
 
    E=real(cp(1),dp)
    x=real(cp(2),dp)
@@ -963,10 +1120,10 @@ end function ubarm
 function v0(p,i)
    implicit none
    complex(dp), intent(in) :: p(4)
-   integer, intent(in)      :: i
+   integer, intent(in) :: i
    complex(dp) :: v0(4)
    complex(dp) :: fc2, fc
-   real(dp)   :: p0,px,py,pz
+   real(dp) :: p0,px,py,pz
 
    p0=real(p(1),dp)
    px=real(p(2),dp)
@@ -1015,7 +1172,7 @@ function vm(cp,i)
    integer, intent(in) :: i
    complex(dp) :: vm(4)
    complex(dp) :: fc2
-   real(dp)   :: E,x,y,z,m,p,fac
+   real(dp) :: E,x,y,z,m,p,fac
 
    E=real(cp(1),dp)
    x=real(cp(2),dp)
@@ -1120,10 +1277,22 @@ function ScalarFFPrefactor(id)
 
    ScalarFFPrefactor = czero
    if(id(1).eq.-id(2)) then
-      ScalarFFPrefactor = -ci*getMass(id(1))/vev
+      ScalarFFPrefactor = -ci*getMass(id(1))/vev*kappa
    endif
    return
 end function ScalarFFPrefactor
+
+function PseudoScalarFFPrefactor(id)
+   implicit none
+   integer, intent(in) :: id(1:2)
+   complex(dp) :: PseudoScalarFFPrefactor
+
+   PseudoScalarFFPrefactor = czero
+   if(id(1).eq.-id(2)) then
+      PseudoScalarFFPrefactor = getMass(id(1))/vev*kappa_tilde ! = -ci*getMass(id(1))/vev*ci*kappa_tilde
+   endif
+   return
+end function PseudoScalarFFPrefactor
 
 ! Returns i*charge*J^mu_L/R
 function Vcurrent(p,id,hel, idV,idV_flavorviolating,useAcoupl,Ub_out,V_out,prefactor_out, isOnshellV)
@@ -1204,6 +1373,9 @@ function Vcurrent(p,id,hel, idV,idV_flavorviolating,useAcoupl,Ub_out,V_out,prefa
          if( present(isOnshellV) ) then
             isOnshellV=.true.
          endif
+         if( present(prefactor_out) ) then
+            prefactor_out=cone
+         endif
       endif
       return
    endif
@@ -1227,23 +1399,25 @@ function Vcurrent(p,id,hel, idV,idV_flavorviolating,useAcoupl,Ub_out,V_out,prefa
    return
 end function Vcurrent
 
-function HFFCurrent(id,Ub,V,prefactor_out)
+function HFFCurrent(id,Ub,V,prefactor_s_out,prefactor_ps_out)
    integer, intent(in) :: id(1:2)
    complex(dp), intent(in) :: Ub(4)
    complex(dp), intent(in) :: V(4)
    complex(dp) :: HFFCurrent
-   complex(dp), optional :: prefactor_out
-   complex(dp) :: prefactor
+   complex(dp), optional :: prefactor_s_out
+   complex(dp), optional :: prefactor_ps_out
+   complex(dp) :: prefactor_s
+   complex(dp) :: prefactor_ps
 
-   HFFcurrent = czero
-   prefactor = ScalarFFPrefactor(id)
+   prefactor_s = ScalarFFPrefactor(id)
+   prefactor_ps = PseudoScalarFFPrefactor(id)
+   HFFcurrent = ((prefactor_s + prefactor_ps)*(Ub(1)*V(1) + Ub(2)*V(2))) + ((prefactor_s - prefactor_ps)*(Ub(3)*V(3) + Ub(4)*V(4)))
 
-   if(prefactor.ne.czero) then
-      ! HFFcurrent =
-      HFFcurrent = prefactor*((kappa + ci*kappa_tilde)*(Ub(1)*V(1) + Ub(2)*V(2)) + (kappa - ci*kappa_tilde)*(Ub(3)*V(3) + Ub(4)*V(4)))
+   if( present(prefactor_s_out) ) then
+      prefactor_s_out=prefactor_s
    endif
-   if( present(prefactor_out) ) then
-      prefactor_out=prefactor
+   if( present(prefactor_ps_out) ) then
+      prefactor_ps_out=prefactor_ps
    endif
 
    return
@@ -1380,9 +1554,9 @@ function dp_gmunu_ewk(p,current) ! (p+-p-)_mu g_ab + (p- -q)_a g_mub + (q-p+)_b 
    complex(dp) :: dp_gmunu_ewk
 
    q(:) = -p(:,1)-p(:,2)
-   dpm(:) = dcmplx(p(:,1)-p(:,2))
-   dmq(:) = dcmplx(-q(:)+p(:,2))
-   dqp(:) = dcmplx(q(:)-p(:,1))
+   dpm(:) = cmplx(p(:,1)-p(:,2),kind=dp)
+   dmq(:) = cmplx(-q(:)+p(:,2),kind=dp)
+   dqp(:) = cmplx(q(:)-p(:,1),kind=dp)
 
    dp_gmunu_ewk = (dpm(:).dot.current(:,1))*(current(:,2).dot.current(:,3)) &
                 + (dmq(:).dot.current(:,2))*(current(:,3).dot.current(:,1)) &
@@ -1523,17 +1697,18 @@ function TripleEWKVertex(p,current,idV,useAcoupl)
 end function TripleEWKVertex
 
 ! (A/Z)ff,f->fA/Zf'f'
-function ZAf_fZAfpfp(diagVCurrent, diagACurrent, useAcoupl, useRootPropagator)
+function ZAf_fZAHfpfp(diagVCurrent, diagACurrent, diagHCurrent, useAcoupl, useRootPropagator)
    implicit none
    type(VACurrent),intent(in) :: diagVCurrent(1:2)
    type(VACurrent),intent(in) :: diagACurrent(1:2)
+   type(ScalarCurrent),intent(in) :: diagHCurrent(1:2)
    logical, optional :: useAcoupl
    logical, optional :: useRootPropagator
    type(VACurrent) :: activeCurrent(1:2)
-   complex(dp) :: ZAf_fZAfpfp(1:4), restmp(1:4) ! Result is a 'current'
+   complex(dp) :: ZAf_fZAHfpfp(1:4), restmp(1:4) ! Result is a 'current'
    integer :: testAcoupl
    real(dp) :: q(1:4),q1(1:4,1:2)
-   complex(dp) :: q1scprop(1:2),massPass(1:2,1:2),innerprefactor(1:2),compositeCurrent(1:4,1:2)
+   complex(dp) :: q1scprop(1:2),massPass(1:2,1:2),gFivePass(1:2,1:2),scalarcontribution(1:2),pseudoscalarcontribution(1:2),innerprefactor(1:2),compositeCurrent(1:4,1:2)
    integer :: iV, i1, i2
    logical :: hasRootProp
    integer :: bsiCode
@@ -1548,7 +1723,7 @@ function ZAf_fZAfpfp(diagVCurrent, diagACurrent, useAcoupl, useRootPropagator)
       hasRootProp=.true.
    endif
 
-   ZAf_fZAfpfp(:) = czero
+   ZAf_fZAHfpfp(:) = czero
 
    ! Calculate total "q"
    do iV=1,2
@@ -1575,6 +1750,7 @@ function ZAf_fZAfpfp(diagVCurrent, diagACurrent, useAcoupl, useRootPropagator)
       endif
       compositeCurrent(:,:)=czero
       massPass(:,:)=czero ! gamma^munu index, fermion/antifermion index
+      gFivePass(:,:)=czero ! gamma5^munu index, fermion/antifermion index
       q1(:,1)=q(:)-activeCurrent(1)%p(:,2) ! q of the fermion in the middle
       q1(:,2)=-q(:)+activeCurrent(1)%p(:,1) ! q of the anti-fermion in the middle
       do iV=1,2
@@ -1601,18 +1777,31 @@ function ZAf_fZAfpfp(diagVCurrent, diagACurrent, useAcoupl, useRootPropagator)
             compositeCurrent(:,iV) = compositeCurrent(:,iV) + activeCurrent(2)%propcurrent(:)*innerprefactor(iV)
          enddo
       endif
+      ! Z/A->f1f1, f1->f1 H->f2f2
+      ! V2=H
+      if(diagHCurrent(i2)%idVertex.ne.Not_a_particle_ .and. do1HVertex) then
+         scalarcontribution(1) = ScalarFFPrefactor((/ activeCurrent(1)%id(1),-activeCurrent(1)%id(1)/))*diagHCurrent(i2)%propcurrent
+         pseudoscalarcontribution(1) = PseudoScalarFFPrefactor((/ activeCurrent(1)%id(1),-activeCurrent(1)%id(1)/))*diagHCurrent(i2)%propcurrent
+         scalarcontribution(2) = ScalarFFPrefactor((/ -activeCurrent(1)%id(2), activeCurrent(1)%id(2)/))*diagHCurrent(i2)%propcurrent
+         pseudoscalarcontribution(2) = PseudoScalarFFPrefactor((/ -activeCurrent(1)%id(2), activeCurrent(1)%id(2)/))*diagHCurrent(i2)%propcurrent
+         do iV=1,2
+            massPass(iV,iV) = scalarcontribution(iV)
+            gFivePass(iV,iV) = pseudoscalarcontribution(iV)
+         enddo
+      endif
 
-      restmp = gamma_gamma_mu(3,(/ compositeCurrent(:,1), cmplx(q1(:,1),kind=dp) /),activeCurrent(1)%Ub,activeCurrent(1)%V, whichUndotted=3, massMatrix=massPass(:,1))*q1scprop(1) + &
-               gamma_gamma_mu(3,(/ cmplx(q1(:,2),kind=dp), compositeCurrent(:,2) /),activeCurrent(1)%Ub,activeCurrent(1)%V, massMatrix=massPass(:,2))*q1scprop(2)
+
+      restmp = gamma_gamma_mu(3,(/ compositeCurrent(:,1), cmplx(q1(:,1),kind=dp) /),activeCurrent(1)%Ub,activeCurrent(1)%V, whichUndotted=3, massMatrix=massPass(:,1), gammaFiveMatrix=gFivePass(:,1) )*q1scprop(1) + &
+               gamma_gamma_mu(3,(/ cmplx(q1(:,2),kind=dp), compositeCurrent(:,2) /),activeCurrent(1)%Ub,activeCurrent(1)%V, massMatrix=massPass(:,2), gammaFiveMatrix=gFivePass(:,2) )*q1scprop(2)
 
       if(hasRootProp) then
          restmp = VectorPropagator(activeCurrent(1)%idVertex,q,restmp) ! Add -igmunu/[V] piece
       endif
       restmp(:) = restmp(:)*activeCurrent(1)%prefactor
-      ZAf_fZAfpfp(:) = ZAf_fZAfpfp(:) + restmp(:)
+      ZAf_fZAHfpfp(:) = ZAf_fZAHfpfp(:) + restmp(:)
    enddo
    return
-end function ZAf_fZAfpfp
+end function ZAf_fZAHfpfp
 
 ! (A/Z)ff,f->fWf'f'
 ! Note: Here, the Z/A received is an observed W, so there is no need to pass diagACurrent since it is not actually observed.
@@ -1687,26 +1876,26 @@ function ZAf_fWfpfp(diagVCurrent, useAcoupl, useRootPropagator)
 
       restmp = gamma_gamma_mu(3,(/ compositeCurrent(:,1), cmplx(q1(:,1),kind=dp) /),activeCurrent(1)%Ub,activeCurrent(1)%V, whichUndotted=3, massMatrix=massPass(:,1))*q1scprop(1) + &
                gamma_gamma_mu(3,(/ cmplx(q1(:,2),kind=dp), compositeCurrent(:,2) /),activeCurrent(1)%Ub,activeCurrent(1)%V, massMatrix=massPass(:,2))*q1scprop(2)
-      if(hasRootProp) then
-         restmp = VectorPropagator(idVroot,q,restmp) ! Add -igmunu/[V] piece
-      endif
       restmp(:) = restmp(:)*innerprefactor
       ZAf_fWfpfp(:) = ZAf_fWfpfp(:) + restmp(:)
    enddo
-
+   if(hasRootProp) then
+      ZAf_fWfpfp = VectorPropagator(idVroot,q,ZAf_fWfpfp) ! Add -igmunu/[V] piece
+   endif
    return
 end function ZAf_fWfpfp
 
 ! Wff,f->f(A/Z)f'f'
-function Wf_fZAfpfp(diagVCurrent, diagACurrent, useRootPropagator)
+function Wf_fZAHfpfp(diagVCurrent, diagACurrent, diagHCurrent, useRootPropagator)
    implicit none
    type(VACurrent),intent(in) :: diagVCurrent(1:2)
    type(VACurrent),intent(in) :: diagACurrent(1:2)
+   type(ScalarCurrent),intent(in) :: diagHCurrent(1:2)
    logical, optional :: useRootPropagator
    type(VACurrent) :: activeCurrent(1:2)
-   complex(dp) :: Wf_fZAfpfp(1:4), restmp(1:4) ! Result is a 'current'
+   complex(dp) :: Wf_fZAHfpfp(1:4), restmp(1:4) ! Result is a 'current'
    real(dp) :: q(1:4),q1(1:4,1:2)
-   complex(dp) :: q1scprop(1:2),massPass(1:2,1:2),innerprefactor(1:2),compositeCurrent(1:4,1:2)
+   complex(dp) :: q1scprop(1:2),massPass(1:2,1:2),gFivePass(1:2,1:2),scalarcontribution(1:2),pseudoscalarcontribution(1:2),innerprefactor(1:2),compositeCurrent(1:4,1:2)
    integer :: iV, i1, i2
    logical :: hasRootProp
 
@@ -1716,7 +1905,7 @@ function Wf_fZAfpfp(diagVCurrent, diagACurrent, useRootPropagator)
       hasRootProp=.true.
    endif
 
-   Wf_fZAfpfp(:) = czero
+   Wf_fZAHfpfp(:) = czero
 
    ! Calculate total "q"
    do iV=1,2
@@ -1740,6 +1929,7 @@ function Wf_fZAfpfp(diagVCurrent, diagACurrent, useRootPropagator)
 
       compositeCurrent(:,:)=czero
       massPass(:,:)=czero ! gamma^munu index, fermion/antifermion index
+      gFivePass(:,:)=czero ! gamma5^munu index, fermion/antifermion index
       q1(:,1)=q(:)-activeCurrent(1)%p(:,2) ! q of the fermion in the middle
       q1(:,2)=-q(:)+activeCurrent(1)%p(:,1) ! q of the anti-fermion in the middle
       do iV=1,2
@@ -1766,18 +1956,30 @@ function Wf_fZAfpfp(diagVCurrent, diagACurrent, useRootPropagator)
             compositeCurrent(:,iV) = compositeCurrent(:,iV) + activeCurrent(2)%propcurrent(:)*innerprefactor(iV)
          enddo
       endif
+      ! Z/A->f1f1, f1->f1 H->f2f2
+      ! V2=H
+      if(diagHCurrent(i2)%idVertex.ne.Not_a_particle_ .and. do1HVertex) then
+         scalarcontribution(1) = ScalarFFPrefactor((/ activeCurrent(1)%id(1),-activeCurrent(1)%id(1)/))*diagHCurrent(i2)%propcurrent
+         pseudoscalarcontribution(1) = PseudoScalarFFPrefactor((/ activeCurrent(1)%id(1),-activeCurrent(1)%id(1)/))*diagHCurrent(i2)%propcurrent
+         scalarcontribution(2) = ScalarFFPrefactor((/ -activeCurrent(1)%id(2), activeCurrent(1)%id(2)/))*diagHCurrent(i2)%propcurrent
+         pseudoscalarcontribution(2) = PseudoScalarFFPrefactor((/ -activeCurrent(1)%id(2), activeCurrent(1)%id(2)/))*diagHCurrent(i2)%propcurrent
+         do iV=1,2
+            massPass(iV,iV) = scalarcontribution(iV)
+            gFivePass(iV,iV) = pseudoscalarcontribution(iV)
+         enddo
+      endif
 
-      restmp = gamma_gamma_mu(3,(/ compositeCurrent(:,1), cmplx(q1(:,1),kind=dp) /),activeCurrent(1)%Ub,activeCurrent(1)%V, whichUndotted=3, massMatrix=massPass(:,1))*q1scprop(1) + &
-               gamma_gamma_mu(3,(/ cmplx(q1(:,2),kind=dp), compositeCurrent(:,2) /),activeCurrent(1)%Ub,activeCurrent(1)%V, massMatrix=massPass(:,2))*q1scprop(2)
+      restmp = gamma_gamma_mu(3,(/ compositeCurrent(:,1), cmplx(q1(:,1),kind=dp) /),activeCurrent(1)%Ub,activeCurrent(1)%V, whichUndotted=3, massMatrix=massPass(:,1), gammaFiveMatrix=gFivePass(:,1) )*q1scprop(1) + &
+               gamma_gamma_mu(3,(/ cmplx(q1(:,2),kind=dp), compositeCurrent(:,2) /),activeCurrent(1)%Ub,activeCurrent(1)%V, massMatrix=massPass(:,2), gammaFiveMatrix=gFivePass(:,2) )*q1scprop(2)
 
       if(hasRootProp) then
          restmp = VectorPropagator(activeCurrent(1)%idVertex,q,restmp) ! Add -igmunu/[V] piece
       endif
       restmp(:) = restmp(:)*activeCurrent(1)%prefactor
-      Wf_fZAfpfp(:) = Wf_fZAfpfp(:) + restmp(:)
+      Wf_fZAHfpfp(:) = Wf_fZAHfpfp(:) + restmp(:)
    enddo
    return
-end function Wf_fZAfpfp
+end function Wf_fZAHfpfp
 
 ! Wff,f->fpWf'f'
 ! Note: Here, the root boson is observed as a ~Z!
@@ -1859,42 +2061,211 @@ function Wf_fWfpfp(diagVCurrent, useRootPropagator)
 
       restmp = gamma_gamma_mu(3,(/ compositeCurrent(:,1), cmplx(q1(:,1),kind=dp) /),activeCurrent(1)%Ub,activeCurrent(1)%V, whichUndotted=3, massMatrix=massPass(:,1)) + &
                gamma_gamma_mu(3,(/ cmplx(q1(:,2),kind=dp), compositeCurrent(:,2) /),activeCurrent(1)%Ub,activeCurrent(1)%V, massMatrix=massPass(:,2))
-      if(hasRootProp) then
-         restmp = VectorPropagator(Wp_,q,restmp) ! Add -igmunu/[V] piece
-      endif
       Wf_fWfpfp(:) = Wf_fWfpfp(:) + restmp(:)
    enddo
+   if(hasRootProp) then
+      Wf_fWfpfp = VectorPropagator(Wp_,q,Wf_fWfpfp) ! Add -igmunu/[V] piece
+   endif
    return
 end function Wf_fWfpfp
 
 
+! Hff,f->fA/Zf'f'
+function Hf_fZAHfpfp(diagVCurrent, diagACurrent, diagHCurrent, useRootPropagator)
+   implicit none
+   type(VACurrent),intent(in) :: diagVCurrent(1:2)
+   type(VACurrent),intent(in) :: diagACurrent(1:2)
+   type(ScalarCurrent),intent(in) :: diagHCurrent(1:2)
+   logical, optional :: useRootPropagator
+   type(VACurrent) :: activeCurrent
+   complex(dp) :: Hf_fZAHfpfp, restmp
+   real(dp) :: q(1:4),q1(1:4,1:2)
+   complex(dp) :: curnull(1:4), q1scprop(1:2),massPass(1:3,1:2),gFivePass(1:3,1:2),scalarcontribution(1:2),pseudoscalarcontribution(1:2),innerprefactor(1:2),compositeCurrent(1:4,1:2)
+   integer :: iV, i1, i2
+   logical :: hasRootProp
+
+   if( present(useRootPropagator) ) then
+      hasRootProp=useRootPropagator
+   else
+      hasRootProp=.true.
+   endif
+
+   Hf_fZAHfpfp = czero
+   curnull(:)=czero ! Just a 0-current
+
+   ! Calculate total "q"
+   do iV=1,2
+      if(diagVCurrent(iV)%idVertex.ne.Not_a_particle_) then
+         q(:)=q(:)+diagVCurrent(iV)%pVertex(:)
+      else if(diagACurrent(iV)%idVertex.ne.Not_a_particle_) then
+         q(:)=q(:)+diagACurrent(iV)%pVertex(:)
+      else
+         return
+      endif
+   enddo
+
+
+   do i1=1,2
+      i2=3-i1
+
+      if(diagHCurrent(i1)%idVertex.ne.Not_a_particle_) then
+         cycle
+      endif
+      compositeCurrent(:,:)=czero
+      massPass(:,:)=czero ! gamma^munu index, fermion/antifermion index
+      gFivePass(:,:)=czero ! gamma5^munu index, fermion/antifermion index
+      q1(:,1)=q(:)-diagHCurrent(i1)%p(:,2) ! q of the fermion in the middle
+      q1(:,2)=-q(:)+diagHCurrent(i1)%p(:,1) ! q of the anti-fermion in the middle
+      do iV=1,2
+         q1scprop(iV) = ScalarPropagator(diagHCurrent(i1)%id(iV),q1(:,iV),compmass=massPass(2,iV)) ! Propagator of the fermion/anti-fermion in the middle
+      enddo
+
+      ! Z/A->f1f1, f1->f1 Z->f2f2
+      ! V2=Z
+      activeCurrent=diagVCurrent(i2)
+      if(activeCurrent%idVertex.ne.Not_a_particle_) then
+         innerprefactor(1) = CurrentPrefactor((/ diagHCurrent(i1)%id(1),-diagHCurrent(i1)%id(1)/),diagHCurrent(i1)%hel) ! Coupling for the fermion in the middle to the boson branchingo out
+         innerprefactor(2) = CurrentPrefactor((/ -diagHCurrent(i1)%id(2), diagHCurrent(i1)%id(2)/),diagHCurrent(i1)%hel) ! Coupling for the fermion in the middle to the boson branchingo out
+         do iV=1,2
+            compositeCurrent(:,iV) = compositeCurrent(:,iV) + activeCurrent%propcurrent(:)*innerprefactor(iV)
+         enddo
+      endif
+      ! Z/A->f1f1, f1->f1 A->f2f2
+      ! V2=A
+      activeCurrent=diagACurrent(i2)
+      if(activeCurrent%idVertex.ne.Not_a_particle_) then
+         innerprefactor(1) = CurrentPrefactor((/ diagHCurrent(i1)%id(1),-diagHCurrent(i1)%id(1)/),diagHCurrent(i1)%hel, useA=.true.) ! Coupling for the fermion in the middle to the boson branchingo out
+         innerprefactor(2) = CurrentPrefactor((/ -diagHCurrent(i1)%id(2), diagHCurrent(i1)%id(2)/),diagHCurrent(i1)%hel, useA=.true.) ! Coupling for the fermion in the middle to the boson branchingo out
+         do iV=1,2
+            compositeCurrent(:,iV) = compositeCurrent(:,iV) + activeCurrent%propcurrent(:)*innerprefactor(iV)
+         enddo
+      endif
+      ! Z/A->f1f1, f1->f1 H->f2f2
+      ! V2=H
+      if(diagHCurrent(i2)%idVertex.ne.Not_a_particle_ .and. do1HVertex) then
+         scalarcontribution(1) = ScalarFFPrefactor((/ diagHCurrent(i1)%id(1),-diagHCurrent(i1)%id(1)/))*diagHCurrent(i2)%propcurrent
+         pseudoscalarcontribution(1) = PseudoScalarFFPrefactor((/ diagHCurrent(i1)%id(1),-diagHCurrent(i1)%id(1)/))*diagHCurrent(i2)%propcurrent
+         scalarcontribution(2) = ScalarFFPrefactor((/ -diagHCurrent(i1)%id(2), diagHCurrent(i1)%id(2)/))*diagHCurrent(i2)%propcurrent
+         pseudoscalarcontribution(2) = PseudoScalarFFPrefactor((/ -diagHCurrent(i1)%id(2), diagHCurrent(i1)%id(2)/))*diagHCurrent(i2)%propcurrent
+         do iV=1,2
+            massPass(2*iV-1,iV) = scalarcontribution(iV) ! 1,3
+            gFivePass(2*iV-1,iV) = pseudoscalarcontribution(iV) ! 1,3
+            massPass(5-2*iV,iV) = diagHCurrent(i1)%scprefactor ! 3,1
+            gFivePass(5-2*iV,iV) = diagHCurrent(i1)%pscprefactor ! 3,1
+         enddo
+      endif
+
+
+      restmp = gamma_dotted_contracted(3,(/ compositeCurrent(:,1), cmplx(q1(:,1),kind=dp), curnull /),diagHCurrent(i1)%Ub,diagHCurrent(i1)%V, massM=massPass(:,1), gFiveM=gFivePass(:,1) )*q1scprop(1) + &
+               gamma_dotted_contracted(3,(/ curnull, cmplx(q1(:,2),kind=dp), compositeCurrent(:,2) /),diagHCurrent(i1)%Ub,diagHCurrent(i1)%V, massM=massPass(:,2), gFiveM=gFivePass(:,2) )*q1scprop(2)
+
+      if(hasRootProp) then
+         restmp = restmp*ScalarPropagator(diagHCurrent(i1)%idVertex,q) ! Add i/[H] piece
+      endif
+      Hf_fZAHfpfp = Hf_fZAHfpfp + restmp
+   enddo
+   return
+end function Hf_fZAHfpfp
+
+! Hff,f->fWf'f'
+! Note: Here, the H received is an observed W, so there is no need to pass diagHCurrent since it is not actually observed.
+function Hf_fWfpfp(diagVCurrent, useRootPropagator, idHChoice)
+   implicit none
+   type(VACurrent),intent(in) :: diagVCurrent(1:2) ! Receives ~W W as input
+   logical, optional :: useRootPropagator
+   integer, optional :: idHChoice
+   complex(dp) :: Hf_fWfpfp, restmp
+   real(dp) :: q(1:4),q1(1:4,1:2)
+   complex(dp) :: curnull(1:4), q1scprop(1:2),massPass(1:3,1:2),gFivePass(1:3,1:2),scalarcontribution(1:2),pseudoscalarcontribution(1:2),innerprefactor
+   integer :: idVroot, iV, i1, i2
+   logical :: hasRootProp
+
+   idVroot=Hig_
+   if( present(useRootPropagator) ) then
+      hasRootProp=useRootPropagator
+   else
+      hasRootProp=.true.
+   endif
+   if( present(idHChoice) ) then
+      idVroot=idHChoice
+   else
+      idVroot=Hig_
+   endif
+
+   Hf_fWfpfp = czero
+   curnull(:)=czero
+
+   ! Calculate total "q"
+   do iV=1,2
+      if(diagVCurrent(iV)%idVertex.ne.Wp_ .and. diagVCurrent(iV)%idVertex.ne.Wm_) then
+         return
+      endif
+      q(:)=q(:)+diagVCurrent(iV)%pVertex(:)
+   enddo
+
+   do i1=1,2
+      i2=3-i1
+
+      innerprefactor=diagVCurrent(i1)%prefactor ! Coupling for the fermion in the middle to the boson branchingo out is just the coupling of the "perceived" root boson
+
+      massPass(:,:)=czero ! gamma^munu index, fermion/antifermion index
+      q1(:,1)=q(:)-diagVCurrent(i1)%p(:,2) ! q of the fermion in the middle
+      q1(:,2)=-q(:)+diagVCurrent(i1)%p(:,1) ! q of the anti-fermion in the middle
+      do iV=1,2
+         q1scprop(iV) = ScalarPropagator(-diagVCurrent(i1)%id(3-iV),q1(:,iV),compmass=massPass(2,iV)) ! Propagator of the fermion/anti-fermion in the middle
+      enddo
+
+      ! H->f1f1, f1->f1 W->f2f2
+      ! V2=W
+      ! Find out the Higgs couplings at the root
+      scalarcontribution(1) = ScalarFFPrefactor((/ -diagVCurrent(i1)%id(2), diagVCurrent(i1)%id(2)/))
+      scalarcontribution(2) = ScalarFFPrefactor((/ diagVCurrent(i1)%id(1),-diagVCurrent(i1)%id(1)/))
+      pseudoscalarcontribution(1) = PseudoScalarFFPrefactor((/ -diagVCurrent(i1)%id(2), diagVCurrent(i1)%id(2)/))
+      pseudoscalarcontribution(2) = PseudoScalarFFPrefactor((/ diagVCurrent(i1)%id(1),-diagVCurrent(i1)%id(1)/))
+
+      do iV=1,2
+         ! 1,3 for the second potential Higgs, which DNE in a W-like decay
+         massPass(5-2*iV,iV) = czero ! 1,3
+         gFivePass(5-2*iV-1,iV) = czero ! 1,3
+         ! 3,1 for the Higgs at the root
+         massPass(2*iV-1,iV) = scalarcontribution(iV) ! 3,1
+         gFivePass(2*iV-1,iV) = pseudoscalarcontribution(iV) ! 3,1
+      enddo
+      restmp = gamma_dotted_contracted(3,(/ (diagVCurrent(i2)%propcurrent(:)*innerprefactor), cmplx(q1(:,1),kind=dp), curnull /),diagVCurrent(i1)%Ub,diagVCurrent(i1)%V, massM=massPass(:,1), gFiveM=gFivePass(:,1) )*q1scprop(1) + &
+               gamma_dotted_contracted(3,(/ curnull, cmplx(q1(:,2),kind=dp), (diagVCurrent(i2)%propcurrent(:)*innerprefactor) /),diagVCurrent(i1)%Ub,diagVCurrent(i1)%V, massM=massPass(:,2), gFiveM=gFivePass(:,2) )*q1scprop(2)
+      Hf_fWfpfp = Hf_fWfpfp + restmp
+   enddo
+   if(hasRootProp) then
+      Hf_fWfpfp = Hf_fWfpfp*ScalarPropagator(idVroot,q) ! Add i/[H] piece
+   endif
+
+   return
+end function Hf_fWfpfp
+
 ! (A/Z)ff,f->fA/Zf'f'
-function f_NV_fp(diagVCurrent, diagACurrent)
+function f_NV_fp(diagVCurrent, diagACurrent, diagHCurrent)
    implicit none
    integer, parameter :: N=4,maxbit=2**(N-1)-1,maxpaircomb=3**(N-2)-1
    type(VACurrent),intent(in) :: diagVCurrent(1:N)
    type(VACurrent),intent(in) :: diagACurrent(1:N)
+   type(ScalarCurrent),intent(in) :: diagHCurrent(1:N)
    type(VACurrent) :: activeCurrent(1:N)
-   complex(dp) :: f_NV_fp, restmp(1:4)
-   real(dp) :: q(1:4),q1(1:4,1:N-2)
-   complex(dp) :: q1scprop(1:N-2),innerprefactor
-   integer :: idRoot(2:N), i1, iV, i, j, jarr(2:N), order(1:N),code,codeprime
+   complex(dp) :: f_NV_fp, restmp
    integer :: rootPair(1:3,1:N-2),rp(1:N-2)
+   integer :: idRoot(2:N), i1, iV, i, order(1:N),code,codeprime
+   logical :: jarr(2:N)
+   real(dp) :: q(1:4),q1(1:4,1:N-2)
+   complex(dp) :: q1scprop(1:N-2)
+   complex(dp) :: gammaDottingArray(1:4,1:2*(N-2)+1), gammaDottingArray_inst(1:4,1:2*(N-2)+1)
+   complex(dp) :: gammaMassArray(1:2*(N-2)+1),gammaFiveArray(1:2*(N-2)+1) ! No need to have *_inst versions since these change every combination
    logical :: mtc ! These are input to get the group of permutations
    logical :: even ! These are input to get the group of permutations
    logical :: isValid, doSkip, doSkipRoot
-   complex(dp) :: gammaDottingArray(1:4,1:2*(N-2))
-   complex(dp) :: gammaMassArray(1:2*(N-2))
    if(N.lt.3) then
-      return
-   endif
-   if(mod(ishft(i,-N+2),2).eq.0) then ! For N=4, ishft(i,-N+2)=111 has to be satisfied
-      print *,"f_NV_fp :: Precision of N is not enough! Please increase precision and retry"
       return
    endif
 
    f_NV_fp = czero
-   gammaMassArray(:)=czero ! Current-related elements (1+2*(iV-2)) are always 0.
 
    do iV=1,N ! Identity
       order(iV)=iV
@@ -1941,17 +2312,16 @@ function f_NV_fp(diagVCurrent, diagACurrent)
          endif
       enddo
       if(isValid) then
-         do i=0,2**(N-1)-1
+         do i=0,maxbit ! =2**(N-1)-1
             doSkip=.false.
 
             ! Determine possible vertices and currents
             do iV=2,N
-               j = mod(ishft(i,-iV+2),2) ! Shift in negative direction, then take mod of 2
-               jarr(iV)=j
+               jarr(iV)=btest(i,-iV+2) ! Determine if the bit at location 2-iV is 0 (Z) or 1 (A)
 
-               if(diagVCurrent(order(iV))%idVertex.ne.Not_a_particle_ .and. j.eq.0) then
+               if(diagVCurrent(order(iV))%idVertex.ne.Not_a_particle_ .and. .not.(jarr(iV))) then
                   activeCurrent(iV)=diagVCurrent(order(iV))
-               else if(diagACurrent(order(iV))%idVertex.ne.Not_a_particle_ .and. j.eq.1) then
+               else if(diagACurrent(order(iV))%idVertex.ne.Not_a_particle_ .and. jarr(iV)) then
                   activeCurrent(iV)=diagACurrent(order(iV))
                else
                   doSkip=.true.
@@ -1960,8 +2330,8 @@ function f_NV_fp(diagVCurrent, diagACurrent)
 
                ! Find the ids of fermion propagators
                idRoot(iV)=activeCurrent(iV)%idVertex
+               gammaDottingArray(:,1+2*(iV-2))=activeCurrent(iV)%propcurrent(:) ! This does not change as long as Z/A/W combination is fixed.
                if(iV.lt.N) then
-                  gammaDottingArray(:,1+2*(iV-2))=activeCurrent(iV)%propcurrent(:) ! This does not change as long as Z/A/W combination is fixed.
                   if(idRoot(iV).eq.Wp_ .or. idRoot(iV).eq.Wm_) then
                      if(iV.eq.2) then
                         rootPair(:,iV-1) = WDaughterPair(activeCurrent(iV)%id(1),considerTops=.true.)
@@ -1981,37 +2351,53 @@ function f_NV_fp(diagVCurrent, diagACurrent)
 
             if(doSkip) cycle
 
-            do code=0,maxpaircomb ! 3**(N-2)-1
+            do code=0,maxpaircomb ! =3**(N-2)-1
                codeprime=code
                doSkipRoot=.false.
+
+               gammaDottingArray_inst=gammaDottingArray ! current2, qf1, ... ,qf(N-2),currentN
+               gammaMassArray(:)=czero
+               gammaFiveArray(:)=czero
                q1scprop(:)=czero
                do iV=1,N-2 ! Choose the indices in the combination
-                  rp(iV) = mod(codeprime,3)
+                  rp(iV) = mod(codeprime,3) ! 0, 1 or 2
                   codeprime = (codeprime-rp(iV))/3
-                  rp(iV) = rp(iV)+1
-
+                  rp(iV) = rp(iV)+1 ! 1, 2 or 3
                   if(rootPair(rp(iV),iV).eq.Not_a_particle_) then
                      doSkipRoot=.true.
                      exit
                   endif
                   q1scprop(iV) = ScalarPropagator(-rootPair(rp(iV),iV),q1(:,iV),compmass=gammaMassArray(2+2*(iV-1)))
+                  gammaDottingArray_inst(:,2+2*(iV-1)) = gammaDottingArray_inst(:,2+2*(iV-1))*q1scprop(iV) ! current2, qf1/Pf1, ... ,qf(N-2)/Pf(N-2),currentN
+                  gammaMassArray(2+2*(iV-1)) = gammaMassArray(2+2*(iV-1))*q1scprop(iV) ! 0, mf1/Pf1, ... ,mf(N-2)/Pf(N-2),0
                enddo
 
                if(doSkipRoot) cycle
 
-               innerprefactor=cone
                do iV=2,N
                   if(iV.eq.2) then
-                     innerprefactor = innerprefactor*q1scprop(iV-1)*CurrentPrefactor( (/ activeCurrent(1)%id(1), rootPair(rp(iV-1),iV-1) /), activeCurrent(1)%hel, useA=(jarr(iV).eq.1) )
+                     gammaDottingArray_inst(:,1+2*(iV-2)) = gammaDottingArray_inst(:,1+2*(iV-2))*CurrentPrefactor( (/ activeCurrent(1)%id(1), rootPair(rp(iV-1),iV-1) /), activeCurrent(1)%hel, useA=jarr(iV) )
+                     if(activeCurrent(iV)%idVertex.eq.Z0_ .and. diagHCurrent(order(iV))%idVertex.ne.Not_a_particle_ .and. do1HVertex) then
+                        gammaMassArray(1+2*(iV-2)) = ScalarFFPrefactor( (/ activeCurrent(1)%id(1), rootPair(rp(iV-1),iV-1) /) )*diagHCurrent(order(iV))%propcurrent
+                        gammaFiveArray(1+2*(iV-2)) = PseudoScalarFFPrefactor( (/ activeCurrent(1)%id(1), rootPair(rp(iV-1),iV-1) /) )*diagHCurrent(order(iV))%propcurrent
+                     endif
                   else if(iV.eq.N) then
-                     innerprefactor = innerprefactor*CurrentPrefactor( (/ -rootPair(rp(iV-2),iV-2), activeCurrent(1)%id(2) /), activeCurrent(1)%hel, useA=(jarr(iV).eq.1) )
+                     gammaDottingArray_inst(:,1+2*(iV-2)) = gammaDottingArray_inst(:,1+2*(iV-2))*CurrentPrefactor( (/ -rootPair(rp(iV-2),iV-2), activeCurrent(1)%id(2) /), activeCurrent(1)%hel, useA=jarr(iV) )
+                     if(activeCurrent(iV)%idVertex.eq.Z0_ .and. diagHCurrent(order(iV))%idVertex.ne.Not_a_particle_ .and. do1HVertex) then
+                        gammaMassArray(1+2*(iV-2)) = ScalarFFPrefactor( (/ -rootPair(rp(iV-2),iV-2), activeCurrent(1)%id(2) /) )*diagHCurrent(order(iV))%propcurrent
+                        gammaFiveArray(1+2*(iV-2)) = PseudoScalarFFPrefactor( (/ -rootPair(rp(iV-2),iV-2), activeCurrent(1)%id(2) /) )*diagHCurrent(order(iV))%propcurrent
+                     endif
                   else
-                     innerprefactor = innerprefactor*q1scprop(iV-1)*CurrentPrefactor( (/ -rootPair(rp(iV-2),iV-2), rootPair(rp(iV-1),iV-1) /), activeCurrent(1)%hel, useA=(jarr(iV).eq.1) )
+                     gammaDottingArray_inst(:,1+2*(iV-2)) = gammaDottingArray_inst(:,1+2*(iV-2))*CurrentPrefactor( (/ -rootPair(rp(iV-2),iV-2), rootPair(rp(iV-1),iV-1) /), activeCurrent(1)%hel, useA=jarr(iV) )
+                     if(activeCurrent(iV)%idVertex.eq.Z0_ .and. diagHCurrent(order(iV))%idVertex.ne.Not_a_particle_ .and. do1HVertex) then
+                        gammaMassArray(1+2*(iV-2)) = ScalarFFPrefactor( (/ -rootPair(rp(iV-2),iV-2), rootPair(rp(iV-1),iV-1) /) )*diagHCurrent(order(iV))%propcurrent
+                        gammaFiveArray(1+2*(iV-2)) = PseudoScalarFFPrefactor( (/ -rootPair(rp(iV-2),iV-2), rootPair(rp(iV-1),iV-1) /) )*diagHCurrent(order(iV))%propcurrent
+                     endif
                   endif
                enddo
 
-               restmp(:) = innerprefactor*gamma_gamma_mu(2*(N-2)+1, gammaDottingArray, activeCurrent(1)%Ub, activeCurrent(1)%V, whichUndotted=2*(N-2)+1, massMatrix=gammaMassArray)
-               f_NV_fp = f_NV_fp + restmp.dot.activeCurrent(N)%propcurrent
+               restmp = gamma_dotted_contracted(2*(N-2)+1, gammaDottingArray_inst, activeCurrent(1)%Ub, activeCurrent(1)%V, massM=gammaMassArray, gFiveM=gammaFiveArray)
+               f_NV_fp = f_NV_fp + restmp
             enddo
          enddo
       endif
@@ -2024,8 +2410,10 @@ end function f_NV_fp
 
 ! Signal-related amplitudes
 ! 4H
-function QuarticHVertex(idV)
+function QuarticHVertex(p,sccurrent,idV)
    implicit none
+   complex(dp), intent(in) :: p(1:4,1:4) ! Lorentz, H index
+   complex(dp), intent(in) :: sccurrent(1:4) ! H index; scalar current
    integer, intent(in) :: idV(1:4) ! current ids
    integer :: order(1:4)
    complex(dp) :: QuarticHVertex
@@ -2034,17 +2422,19 @@ function QuarticHVertex(idV)
    order(:)=0
    order(:)=Id_Order(4,idV,(/ Hig_,Hig_,Hig_,Hig_ /))
    if( order(1).eq.0 .or. order(2).eq.0 .or. order(3).eq.0 .or. order(4).eq.0 ) then
-      print *,"QuarticHVertex::Target mismatch (ids, order)",idV,order
+      !print *,"QuarticHVertex::Target mismatch (ids, order)",idV,order
       return
    endif
 
-   QuarticHVertex = -ci*3_dp*M_Reso**2/vev
+   QuarticHVertex = (-ci*3_dp*M_Reso**2/vev)*(sccurrent(1)*sccurrent(2)*sccurrent(3)*sccurrent(4))
    return
 end function QuarticHVertex
 
 ! 3H
-function TripleHVertex(idV)
+function TripleHVertex(p,sccurrent,idV)
    implicit none
+   complex(dp), intent(in) :: p(1:4,1:3) ! Lorentz, H index
+   complex(dp), intent(in) :: sccurrent(1:3) ! H index; scalar current
    integer, intent(in) :: idV(1:3) ! current ids
    integer :: order(1:3)
    complex(dp) :: TripleHVertex
@@ -2053,19 +2443,19 @@ function TripleHVertex(idV)
    order(:)=0
    order(:)=Id_Order(3,idV,(/ Hig_,Hig_,Hig_ /))
    if( order(1).eq.0 .or. order(2).eq.0 .or. order(3).eq.0 ) then
-      print *,"QuarticHVertex::Target mismatch (ids, order)",idV,order
+      !print *,"TripleHVertex::Target mismatch (ids, order)",idV,order
       return
    endif
 
-   TripleHVertex = -ci*3_dp*(M_Reso/vev)**2
+   TripleHVertex = (-ci*3_dp*(M_Reso/vev)**2)*(sccurrent(1)*sccurrent(2)*sccurrent(3))
    return
 end function TripleHVertex
 
 ! VVHH
-function DoubleVHVertex(p,current,idV,outType)
+function DoubleVHVertex(p,sccurrent,current,idV,outType)
    use ModMisc
    implicit none
-   complex(dp), intent(in) :: p(1:4,1:4),current(1:4,1:4) ! Lorentz, current index
+   complex(dp), intent(in) :: p(1:4,1:4),sccurrent(1:4),current(1:4,1:4) ! Lorentz, current index
    integer, intent(in) :: idV(1:4) ! current ids
    integer, intent(in) :: outType(1:2)
    integer :: order(1:4)
@@ -2082,11 +2472,12 @@ function DoubleVHVertex(p,current,idV,outType)
       return
    endif
    if( order(1).eq.0 .or. order(2).eq.0 .or. order(3).eq.0 .or. order(4).eq.0 ) then
-      print *,"DoubleVHVertex::Target mismatch (ids, order)",idV,order
+      !print *,"DoubleVHVertex::Target mismatch (ids, order)",idV,order
       return
    endif
 
-   DoubleVHVertex = ci*2_dp*(M_V/vev)**2*( current(:,order(3)).dot.current(:,order(4)) )
+   DoubleVHVertex = (ci*2_dp*(M_V/vev)**2)*(sccurrent(order(1))*sccurrent(order(2)))* &
+                    ( current(:,order(3)).dot.current(:,order(4)) )
    return
 end function DoubleVHVertex
 
@@ -2118,7 +2509,7 @@ function VVHVertex(p,current,idV,outType)
       return
    endif
    if( order(1).eq.0 .or. order(2).eq.0 .or. order(3).eq.0 ) then
-      print *,"VVHVertex::Target mismatch (ids, order)",idV,order
+      !print *,"VVHVertex::Target mismatch (ids, order)",idV,order
       return
    endif
 
@@ -2151,7 +2542,8 @@ function VVHVertex(p,current,idV,outType)
       ghz3_dyn = HVVSpinZeroDynamicCoupling(7,0d0,q4_q4,q_q)
       ghz4_dyn = HVVSpinZeroDynamicCoupling(8,0d0,q4_q4,q_q)
 
-      aa(1) = ghz1_dyn*q_q                                & ! Notice mG**2 instead
+      M_V=M_Z
+      aa(1) = ghz1_dyn*M_V**2                             &
             + ghz2_dyn*two*q3_q4                          &
             + ghz3_dyn*(q3_q4/Lambda)**2
       aa(2) = -2d0*ghz2_dyn-ghz3_dyn/Lambda**2*q3_q4
@@ -2181,21 +2573,29 @@ end function VVHVertex
 
 ! Subroutines to combine the amplitudes
 
-! Signal VV--H--VV
+! Signal VV--HH + V--(H)V--VH
+! Signal VV--V--VH (W+W-ZZH/W+ZWW-H/W-ZWW+H)
+
+! Signal (VV/HH)--H--(VV/HH), HHHH
 subroutine amp_VVHVV(diag)
    implicit none
    class(Single4VDiagram) :: diag
    complex(dp) :: ime
 
    real(dp) :: qV(1:4,1:4)
-   integer :: idV(1:4),idA(1:4),idSort(1:4)
+   integer :: idH(1:4),idV(1:4),idA(1:4),idSort(1:4)
+   complex(dp) :: scalarH(1:4) ! Scalar current
    complex(dp) :: currentV(1:4,1:4) ! Current
    complex(dp) :: currentA(1:4,1:4) ! Current
    complex(dp) :: ime_tmp(1:2),ime_acc
-   complex(dp) :: currentH(1:4),qBack(1:4,1:3),qFront(1:4,1:3),cBack(1:4,1:3),cFront(1:4,1:3)
+   complex(dp) :: currentH(1:4),qBack(1:4,1:3),qFront(1:4,1:3),cBack(1:4,1:3),cFront(1:4,1:3),hBack(1:3),hFront(1:3),hprop
    integer :: outTypeBack(1:2),outTypeFront(1:2),order(1:4),idBack(1:3),idFront(1:3),ic,lineorder(1:4),iperm,nAonshells,iV,fstype(1:4)
    integer :: nzgscomb,izgscomb,fstype_zgs(1:4)
    real(dp) :: qH(1:4)
+
+   if(.not.doSignal) then
+      return
+   endif
 
    ime=czero
    ime_acc=czero
@@ -2205,15 +2605,26 @@ subroutine amp_VVHVV(diag)
    nAonshells=0 ! Keep track of how many gammas there are.
 
    do ic=1,4
-      qV(:,ic) = fullV(ic)%pVertex(:) ! No need for qA since it is the same
+      idH(ic) = fullH(ic)%idVertex
       idV(ic) = fullV(ic)%idVertex
       idA(ic) = fullA(ic)%idVertex
+
+      if(idV(iV).ne.Not_a_particle_) then
+         qV(:,iV) = fullV(iV)%pVertex(:)
+      elseif(idA(iV).ne.Not_a_particle_) then
+         qV(:,iV) = fullA(iV)%pVertex(:)
+      else ! Failure!
+         return
+      endif
+
+      scalarH(ic) = fullH(ic)%propcurrent
       currentV(:,ic) = fullV(ic)%propcurrent(:)
       currentA(:,ic) = fullA(ic)%propcurrent(:)
       if(idA(ic).eq.Pho_ .and. fullA(ic)%isOnshellBoson) then
          nAonshells = nAonshells+1
          if(nAonshells.gt.3) return ! 4A states are not allowed since there have to be at least two fermions generating these diagrams
          idSort(ic)=idA(ic)
+         !idH(ic)=Not_a_particle_
       else
          idSort(ic)=idV(ic)
       endif
@@ -2223,8 +2634,9 @@ subroutine amp_VVHVV(diag)
    order(:)=0
    fstype(:)=(/ Wp_,Wm_,Wp_,Wm_ /)
    order(:)=Id_Order(4,idSort,fstype)
-   if(order(1).ne.0 .and. order(2).ne.0 .and. order(3).ne.0 .and. order(4).ne.0) then
-      do iperm=1,2
+   if(order(1).ne.0 .and. order(2).ne.0 .and. order(3).ne.0 .and. order(4).ne.0 .and. do1HVertex) then
+   ! As long as Higgs is not charged, an observed (W+W-)x2 can only proceed through a single H in the middle.
+       do iperm=1,2
          if(iperm.eq.1) then
             lineorder(:)=(/ 1,2,3,4 /)
          else
@@ -2241,7 +2653,7 @@ subroutine amp_VVHVV(diag)
          cBack(:,2)=currentV(:,order(lineorder(1)))
          cBack(:,3)=currentV(:,order(lineorder(2)))
          idFront(:)=(/Hig_,idV(order(lineorder(3))),idV(order(lineorder(4)))/)
-         qFront(:,1)=qH(:)
+         qFront(:,1)=-qH(:)
          qFront(:,2)=qV(:,order(lineorder(3)))
          qFront(:,3)=qV(:,order(lineorder(4)))
          cFront(:,1)=currentH(:)
@@ -2251,13 +2663,16 @@ subroutine amp_VVHVV(diag)
       enddo
    endif
 
-   ! Try (W+W-)-H-(ZZ)
+   ! Try (W+W-)-H-(ZZ/HH)
    order(:)=0
    if(nAonshells.eq.0) then
       fstype(:)=(/ Wp_,Wm_,Z0_,Z0_ /)
       order(:)=Id_Order(4,idSort,fstype)
    else if(nAonshells.eq.1) then
       fstype(:)=(/ Wp_,Wm_,Z0_,Pho_ /)
+      order(:)=Id_Order(4,idSort,fstype)
+   else if(nAonshells.eq.2) then
+      fstype(:)=(/ Wp_,Wm_,Pho_,Pho_ /)
       order(:)=Id_Order(4,idSort,fstype)
    endif
    if(order(1).ne.0 .and. order(2).ne.0 .and. order(3).ne.0 .and. order(4).ne.0) then
@@ -2268,7 +2683,8 @@ subroutine amp_VVHVV(diag)
       idBack(:)=(/Hig_,outTypeBack(1),outTypeBack(2)/)
       qH(:)=qV(:,order(lineorder(3)))+qV(:,order(lineorder(4)))
       qBack(:,1)=qH(:)
-      qFront(:,1)=qH(:)
+      qFront(:,1)=-qH(:)
+      hBack(1)=cone; hBack(2:3)=czero
       cBack(:,1)=currentH(:)
       cFront(:,1)=currentH(:)
       do iV=1,2
@@ -2277,17 +2693,22 @@ subroutine amp_VVHVV(diag)
          cBack(:,iV+1)=currentV(:,order(lineorder(iV)))
       enddo
 
+      ime_tmp(1)=VVHVertex(qBack,cBack,idBack,outTypeBack)*ScalarPropagator(Hig_,qH(:))
+      ime_tmp(2)=czero
+
       nzgscomb = 2**(2-nAonshells)
       do izgscomb=0,(nzgscomb-1)
          if(.not.includeGammaStar .and. izgscomb.gt.0) then
             exit
          endif
          fstype_zgs=fstype
-         do iV=3,(4-nAonshells)
-            if(mod(ishft(izgscomb,-iV+3),2).eq.1) then
-               fstype_zgs(iV)=Pho_
-            endif
-         enddo
+         if(nAonshells.lt.2) then
+            do iV=3,(4-nAonshells)
+               if(btest(izgscomb,-iV+3)) then
+                  fstype_zgs(iV)=Pho_
+               endif
+            enddo
+         endif
 
          outTypeFront(:)=(/ fstype_zgs(lineorder(3)),fstype_zgs(lineorder(4)) /)
          idFront(:)=(/Hig_,outTypeFront(1),outTypeFront(2)/)
@@ -2298,10 +2719,25 @@ subroutine amp_VVHVV(diag)
                cFront(:,iV-1)=currentA(:,order(lineorder(iV)))
             endif
          enddo
-         ime_acc = ime_acc + VVHVertex(qFront,cFront,idFront,outTypeFront)
+
+         ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront) ! H->V3V4
+         if( & ! H->H3H4->ffb f'fb'
+            outTypeFront(1).eq.Z0_ .and. outTypeFront(2).eq.Z0_ .and. &
+            idH(order(lineorder(3))).ne.Not_a_particle_ .and. idH(order(lineorder(4))).ne.Not_a_particle_ &
+            ) then
+
+            hFront(1)=cone
+            do iV=3,4
+               hFront(iV-1)=scalarH(order(lineorder(iV)))
+            enddo
+
+            if(do3HVertex) then
+               ime_tmp(2) = ime_tmp(2) + TripleHVertex(qFront, hFront, (/ Hig_,Hig_,Hig_ /) )
+            endif
+         endif
       enddo
-      ime = ime + VVHVertex(qBack,cBack,idBack,outTypeBack)*ime_acc*ScalarPropagator(Hig_,qH(:))
-      ime_acc=czero
+      ime = ime + ime_tmp(1)*ime_tmp(2)
+      ime_tmp(:)=czero
    endif
 
    ! Try (ZZ)-H-(ZZ)
@@ -2332,8 +2768,9 @@ subroutine amp_VVHVV(diag)
 
          ime_acc=czero
          qH(:)=qV(:,order(lineorder(3)))+qV(:,order(lineorder(4)))
+         hprop = ScalarPropagator(Hig_,qH(:))
          qBack(:,1)=qH(:)
-         qFront(:,1)=qH(:)
+         qFront(:,1)=-qH(:)
          do iV=1,2
             qBack(:,iV+1)=qV(:,order(lineorder(iV)))
             qFront(:,iV+1)=qV(:,order(lineorder(iV+2)))
@@ -2348,7 +2785,7 @@ subroutine amp_VVHVV(diag)
             endif
             fstype_zgs=fstype
             do iV=1,(4-nAonshells)
-               if(mod(ishft(izgscomb,-iV+1),2).eq.1) then
+               if(btest(izgscomb,-iV+1)) then
                   fstype_zgs(iV)=Pho_
                endif
             enddo
@@ -2371,111 +2808,221 @@ subroutine amp_VVHVV(diag)
                   cFront(:,iV-1)=currentA(:,order(lineorder(iV)))
                endif
             enddo
-            ime_acc = ime_acc + VVHVertex(qBack,cBack,idBack,outTypeBack)*VVHVertex(qFront,cFront,idFront,outTypeFront)
+
+            ime_tmp(:)=czero
+            if(do1HVertex) then
+               ime_tmp(1) = ime_tmp(1) + VVHVertex(qBack,cBack,idBack,outTypeBack)
+               ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront)
+            endif
+            if( & ! H->H1H2->ffb f'fb'
+               outTypeBack(1).eq.Z0_ .and. outTypeBack(2).eq.Z0_ .and. &
+               idH(order(lineorder(1))).ne.Not_a_particle_ .and. idH(order(lineorder(2))).ne.Not_a_particle_ &
+               ) then
+               hBack(1)=cone
+               do iV=1,2
+                  hBack(iV+1)=scalarH(order(lineorder(iV)))
+               enddo
+               if(do3HVertex) then
+                  ime_tmp(1) = ime_tmp(1) + TripleHVertex(qBack, hBack, (/ Hig_,Hig_,Hig_ /) )
+               endif
+            endif
+            if( & ! H->H3H4->ffb f'fb'
+               outTypeFront(1).eq.Z0_ .and. outTypeFront(2).eq.Z0_ .and. &
+               idH(order(lineorder(3))).ne.Not_a_particle_ .and. idH(order(lineorder(4))).ne.Not_a_particle_ &
+               ) then
+               hFront(1)=cone
+               do iV=3,4
+                  hFront(iV-1)=scalarH(order(lineorder(iV)))
+               enddo
+               if(do3HVertex) then
+                  ime_tmp(2) = ime_tmp(2) + TripleHVertex(qFront, hFront, (/ Hig_,Hig_,Hig_ /) )
+               endif
+            endif
+            ime_acc = ime_acc + ime_tmp(1)*ime_tmp(2)*hprop
+
+            if( & ! H1H2H3H4
+               iperm.eq.1 .and. & ! The other combinations are also the same, so do not pursue them!
+               outTypeBack(1).eq.Z0_ .and. outTypeBack(2).eq.Z0_ .and. &
+               outTypeFront(1).eq.Z0_ .and. outTypeFront(2).eq.Z0_ .and. &
+               idH(order(lineorder(1))).ne.Not_a_particle_ .and. idH(order(lineorder(2))).ne.Not_a_particle_ .and. &
+               idH(order(lineorder(3))).ne.Not_a_particle_ .and. idH(order(lineorder(4))).ne.Not_a_particle_       &
+               ) then
+               if(do4HVertex) then
+                  ime_acc = ime_acc + QuarticHVertex(cmplx(qV(:,:),kind=dp),scalarH,idH) ! Does not matter if you order them by order(lineorder(:)) or not
+               endif
+            endif
          enddo
-         ime = ime + ime_acc*ScalarPropagator(Hig_,qH(:))
+         ime = ime + ime_acc
       enddo
       ime_acc=czero
    endif
 
-   diag%Asig = diag%Asig + diag%permutation_factor*ime
+   diag%Amplitude = diag%Amplitude + diag%permutation_factor*ime
    return
 end subroutine amp_VVHVV
 
 ! Quartic and double-triple EWK vertex diagrams
-subroutine amp_WWZZ(diag)
-   implicit none
-   class(Single4VDiagram) :: diag
-   integer :: idV(1:4)
-   real(dp) :: qV(1:4,1:4),qZA(1:4,1:2)
-   complex(dp) :: currentV(1:4,1:4) ! Current
-   integer :: ic
-   complex(dp) :: ime
-
-   do ic=1,4
-      qV(:,ic) = fullV(ic)%pVertex(:) ! No need for qA since it is the same
-      idV(ic) = fullV(ic)%idVertex
-      currentV(:,ic) = fullV(ic)%propcurrent(:)
-   enddo
-
-   ime = QuarticEWKVertex(currentV, idV, (/ Z0_, Z0_ /))
-
-   diag%Abkg = diag%Abkg + diag%permutation_factor*ime
-   return
-end subroutine amp_WWZZ
-
-subroutine amp_WWAA(diag)
-   implicit none
-   class(Single4VDiagram) :: diag
-   integer :: idV(1:4),idA(1:4),idVA(1:4)
-   complex(dp) :: currentVA(1:4,1:4) ! Current
-   integer :: ic,nWs,nAs
-   complex(dp) :: ime
-
-   ime=czero
-   nWs=0
-   nAs=0
-   do ic=1,4
-      idV(ic) = fullV(ic)%idVertex
-      idA(ic) = fullA(ic)%idVertex
-      if(idV(ic).eq.Wp_ .or. idV(ic).eq.Wm_) then
-         nWs = nWs+1
-         if(nWs.gt.2) return
-         idVA(ic)=idV(ic)
-         currentVA(:,ic)=fullV(ic)%propcurrent(:)
-      else if(idA(ic).eq.Pho_) then
-         nAs = nAs+1
-         if(nAs.gt.2) return
-         idVA(ic)=idA(ic)
-         currentVA(:,ic)=fullA(ic)%propcurrent(:)
-      endif
-   enddo
-   if(nAs.ne.2 .and. nWs.ne.2) return
-
-   ime = QuarticEWKVertex(currentVA, idVA, (/ Pho_, Pho_ /))
-
-   diag%Abkg = diag%Abkg + diag%permutation_factor*ime
-   return
-end subroutine amp_WWAA
-
 subroutine amp_WWZA(diag)
    implicit none
    class(Single4VDiagram) :: diag
-   integer :: idV(1:4),idA(1:4),idVA(1:4)
-   complex(dp) :: currentVA(1:4,1:4) ! Current
-   integer :: ic,nWs,nAs,markA(1:2)
-   complex(dp) :: ime
+   integer :: idH(1:4),idV(1:4),idA(1:4),idSort(1:4),idSorted(1:4)
+   real(dp) :: qV(1:4,1:4),qWV(1:4,1:2),qSorted(1:4,1:4)
+   complex(dp) :: currentV(1:4,1:4),currentA(1:4,1:4),currentH(1:4),scalarH(1:4),currentSorted(1:4,1:4),scalarHsorted(1:4),cWV(1:4,1:2),propSc(1:2)
+   integer :: iV,ic,iz,h,mu,nAonshells,order(1:4),fstype(1:4),fstype_zgs(1:4),izgscomb,nzgscomb
+   complex(dp) :: ime,ime_tmp(1:2)
 
    ime=czero
-   nWs=0
-   nAs=0
-   do ic=1,4
-      idV(ic) = fullV(ic)%idVertex
-      idA(ic) = fullA(ic)%idVertex
-      if(idV(ic).eq.Wp_ .or. idV(ic).eq.Wm_) then
-         nWs = nWs+1
-         if(nWs.gt.2) return
-         idVA(ic)=idV(ic)
-         currentVA(:,ic)=fullV(ic)%propcurrent(:)
-      else if(idA(ic).eq.Pho_) then
-         nAs = nAs+1
-         if(nAs.gt.2) return
-         markA(nAs)=ic
-         !idVA(ic)=idA(ic)
-         !currentVA(:,ic)=fullA(ic)%propcurrent(:)
+   nAonshells=0
+   currentH(:)=czero ! This is just a dummy current
+   do iV=1,4
+      idH(iV) = fullH(iV)%idVertex
+      idV(iV) = fullV(iV)%idVertex
+      idA(iV) = fullA(iV)%idVertex
+      scalarH(iV) = fullH(iV)%propcurrent
+      currentV(:,iV)=fullV(iV)%propcurrent(:)
+      currentA(:,iV)=fullA(iV)%propcurrent(:)
+
+      if(idV(iV).ne.Not_a_particle_) then
+         qV(:,iV) = fullV(iV)%pVertex(:)
+      elseif(idA(iV).ne.Not_a_particle_) then
+         qV(:,iV) = fullA(iV)%pVertex(:)
+      else ! Failure!
+         return
+      endif
+
+      idSort(iV)=idV(iV)
+      if(idA(iV).eq.Pho_ .and. fullA(iV)%isOnshellBoson) then
+         nAonshells = nAonshells+1
+         if(nAonshells.gt.2) return
+         idSort(iV)=idA(iV)
       endif
    enddo
-   if(nWs.ne.2) return
 
-   do ic=1,2
-      idVA(markA(ic))=idA(markA(ic))
-      idVA(markA(3-ic))=idV(markA(3-ic))
-      currentVA(:,markA(ic))=fullA(markA(ic))%propcurrent(:)
-      currentVA(:,markA(3-ic))=fullV(markA(3-ic))%propcurrent(:)
-      ime = ime + QuarticEWKVertex(currentVA, idVA, (/ Z0_, Pho_ /))
-   enddo
+   order(:)=0
+   if(nAonshells.eq.0) then
+      fstype(:)=(/ Wp_,Wm_,Z0_,Z0_ /)
+      order(:)=Id_Order(4,idSort,fstype)
+   else if(nAonshells.eq.1) then
+      fstype(:)=(/ Wp_,Wm_,Z0_,Pho_ /)
+      order(:)=Id_Order(4,idSort,fstype)
+   else
+      fstype(:)=(/ Wp_,Wm_,Pho_,Pho_ /)
+      order(:)=Id_Order(4,idSort,fstype)
+   endif
+   if(order(1).ne.0 .and. order(2).ne.0 .and. order(3).ne.0 .and. order(4).ne.0) then
+      nzgscomb = 2**(2-nAonshells)
+      do izgscomb=0,(nzgscomb-1)
+         if(.not.includeGammaStar .and. izgscomb.gt.0) then
+            exit
+         endif
+         fstype_zgs=fstype
+         if(nAonshells.lt.2) then
+            do iV=3,(4-nAonshells)
+               if(btest(izgscomb,-iV+3)) then
+                  fstype_zgs(iV)=Pho_
+               endif
+            enddo
+         endif
+         do iV=1,4
+            qSorted(:,iV)=qV(:,order(iV))
+            scalarHsorted(iV)=czero
+            if(fstype_zgs(iV).eq.Pho_) then
+               currentSorted(:,iV)=currentA(:,order(iV))
+               idSorted(iV)=idA(order(iV))
+            else
+               currentSorted(:,iV)=currentV(:,order(iV))
+               idSorted(iV)=idV(order(iV))
+               if(fstype_zgs(iV).eq.Z0_) then
+                  scalarHsorted(iV)=scalarH(order(iV))
+               endif
+            endif
+         enddo
 
-   diag%Abkg = diag%Abkg + diag%permutation_factor*ime
+         if(doBkg) then ! WW.VV'
+            ime = ime + QuarticEWKVertex(currentSorted, idSorted, fstype_zgs(3:4))
+         endif
+         do ic=3,4
+            iz=7-ic
+            qWV(:,1) = -qSorted(:,1)-qSorted(:,ic)
+            qWV(:,2) = -qSorted(:,2)-qSorted(:,iz)
+            propSc(1) = ScalarPropagator(-idSorted(1),qWV(:,1))
+            do h=-1,1
+               ime_tmp(:)=czero
+               cWV(:,1) = pol_massive(qWV(:,1),h)
+               do mu=1,4
+                  cWV(mu,2) = -conjg(cWV(mu,1))
+               enddo
+
+               if(doBkg) then ! WV--W--WV'
+                  ime_tmp(1) = ime_tmp(1) + TripleEWKVertex( (/ qWV(:,1), qSorted(:,1), qSorted(:,ic) /), (/ cWV(:,1), currentSorted(:,1), currentSorted(:,ic) /), (/ -idSorted(1), idSorted(1), idSorted(ic) /), useAcoupl=(idSorted(ic).eq.Pho_) )
+                  ime_tmp(2) = ime_tmp(2) + TripleEWKVertex( (/ qWV(:,2), qSorted(:,2), qSorted(:,iz) /), (/ cWV(:,2), currentSorted(:,2), currentSorted(:,iz) /), (/ -idSorted(2), idSorted(2), idSorted(iz) /), useAcoupl=(idSorted(iz).eq.Pho_) )
+               endif
+               if(do1HVertex) then ! WH--W--WH
+                  if(idSorted(ic).eq.Z0_) then
+                     ime_tmp(1) = ime_tmp(1) + VVHVertex( (/ cmplx(qWV(:,1),kind=dp), cmplx(qSorted(:,1),kind=dp), cmplx(qSorted(:,ic),kind=dp) /), (/ cWV(:,1), currentSorted(:,1), currentH(:) /), (/ -idSorted(1), idSorted(1), idH(order(ic)) /), (/ -fstype_zgs(1),fstype_zgs(1) /) )
+                  endif
+                  if(idSorted(iz).eq.Z0_) then
+                     ime_tmp(2) = ime_tmp(2) + VVHVertex( (/ cmplx(qWV(:,2),kind=dp), cmplx(qSorted(:,2),kind=dp), cmplx(qSorted(:,iz),kind=dp) /), (/ cWV(:,2), currentSorted(:,2), currentH(:) /), (/ -idSorted(2), idSorted(2), idH(order(iz)) /), (/ -fstype_zgs(2),fstype_zgs(2) /) )
+                  endif
+               endif
+               ime = ime + propSc(1)*ime_tmp(1)*ime_tmp(2)
+            enddo
+         enddo
+
+         if(do1HVertex .and. .not.(idSorted(3).eq.Pho_ .and. idSorted(4).eq.Pho_)) then ! WW--Z/G--HZ/G; H has to derive from a Z, to avoid double-counting at the least.
+            do ic=3,4
+               iz=7-ic
+               qWV(:,1) = -qSorted(:,1)-qSorted(:,2)
+               qWV(:,2) = -qSorted(:,ic)-qSorted(:,iz)
+               propSc(1)=ScalarPropagator(Z0_,qWV(:,1))
+               propSc(2)=ScalarPropagator(Pho_,qWV(:,1))
+
+               do h=-1,1
+                  cWV(:,1) = pol_massive(qWV(:,1),h)
+                  do mu=1,4
+                     cWV(mu,2) = -conjg(cWV(mu,1))
+                  enddo
+
+                  ! Z in the middle
+                  ime_tmp(:)=czero
+                  ime_tmp(1) = ime_tmp(1) + TripleEWKVertex( (/ qWV(:,1), qSorted(:,1), qSorted(:,2) /), (/ cWV(:,1), currentSorted(:,1), currentSorted(:,2) /), (/ Z0_, idSorted(1), idSorted(2) /) )
+                  if(idSorted(ic).eq.Z0_) then
+                     ime_tmp(2) = ime_tmp(2) + VVHVertex( (/ cmplx(qWV(:,2),kind=dp), cmplx(qSorted(:,iz),kind=dp), cmplx(qSorted(:,ic),kind=dp) /), (/ cWV(:,2), currentSorted(:,iz), currentH(:) /), (/ Z0_, idSorted(iz), idH(order(ic)) /), (/ Z0_,fstype_zgs(iz) /) )
+                  endif
+                  if(idSorted(iz).eq.Z0_) then
+                     ime_tmp(2) = ime_tmp(2) + VVHVertex( (/ cmplx(qWV(:,2),kind=dp), cmplx(qSorted(:,ic),kind=dp), cmplx(qSorted(:,iz),kind=dp) /), (/ cWV(:,2), currentSorted(:,ic), currentH(:) /), (/ Z0_, idSorted(ic), idH(order(iz)) /), (/ Z0_,fstype_zgs(ic) /) )
+                  endif
+                  ime = ime + propSc(1)*ime_tmp(1)*ime_tmp(2)
+                  ! A in the middle
+                  ime_tmp(:)=czero
+                  ime_tmp(1) = ime_tmp(1) + TripleEWKVertex( (/ qWV(:,1), qSorted(:,1), qSorted(:,2) /), (/ cWV(:,1), currentSorted(:,1), currentSorted(:,2) /), (/ Pho_, idSorted(1), idSorted(2) /), useAcoupl=.true. )
+                  if(idSorted(ic).eq.Z0_) then
+                     ime_tmp(2) = ime_tmp(2) + VVHVertex( (/ cmplx(qWV(:,2),kind=dp), cmplx(qSorted(:,iz),kind=dp), cmplx(qSorted(:,ic),kind=dp) /), (/ cWV(:,2), currentSorted(:,iz), currentH(:) /), (/ Pho_, idSorted(iz), idH(order(ic)) /), (/ Pho_,fstype_zgs(iz) /) )
+                  endif
+                  if(idSorted(iz).eq.Z0_) then
+                     ime_tmp(2) = ime_tmp(2) + VVHVertex( (/ cmplx(qWV(:,2),kind=dp), cmplx(qSorted(:,ic),kind=dp), cmplx(qSorted(:,iz),kind=dp) /), (/ cWV(:,2), currentSorted(:,ic), currentH(:) /), (/ Pho_, idSorted(ic), idH(order(iz)) /), (/ Pho_,fstype_zgs(ic) /) )
+                  endif
+                  ime = ime + propSc(2)*ime_tmp(1)*ime_tmp(2)
+               enddo
+            enddo
+         endif
+         if( & ! H->H3H4->ffb f'fb'
+            do2HVertex .and. &
+            fstype_zgs(3).eq.Z0_ .and. fstype_zgs(4).eq.Z0_ .and. &
+            idH(order(3)).ne.Not_a_particle_ .and. idH(order(4)).ne.Not_a_particle_ &
+            ) then
+            ime = ime + DoubleVHVertex( &
+                                       cmplx(qSorted(:,:),kind=dp), & ! W+W-HH
+                                       scalarHsorted, &
+                                       currentSorted, &
+                                       (/ idSorted(1),idSorted(2),Hig_,Hig_ /), &
+                                       fstype_zgs(1:2) )
+         endif
+
+      enddo
+   endif
+
+   diag%Amplitude = diag%Amplitude + diag%permutation_factor*ime
    return
 end subroutine amp_WWZA
 
@@ -2495,16 +3042,17 @@ subroutine amp_WWWW(diag)
    ime_WW_A_WW = czero
 
    do ic=1,4
-      qV(:,ic) = fullV(ic)%pVertex(:) ! No need for qA since it is the same
       idV(ic) = fullV(ic)%idVertex
       currentV(:,ic) = fullV(ic)%propcurrent(:)
-      !idA(ic) = fullA(ic)%idVertex
-      !currentA(:,ic) = fullA(ic)%propcurrent(:)
+      if(idV(ic).ne.Not_a_particle_) then
+         qV(:,ic) = fullV(ic)%pVertex(:)
+      else ! Failure!
+         return
+      endif
    enddo
 
    outType(:) = (/ Wp_, Wm_ /)
    order(:)=Id_Order(4,idV,(/ Wp_,Wm_,Wp_,Wm_ /))
-
    if(order(1).ne.0 .and. order(2).ne.0 .and. order(3).ne.0 .and. order(4).ne.0) then
       ime = QuarticEWKVertex(currentV,idV,outType)
 
@@ -2560,29 +3108,36 @@ subroutine amp_WWWW(diag)
       ime_WW_A_WW = ime_WW_A_WW * ScalarPropagator(Pho_,qZA(:,1))
       ime = ime + ime_WW_Z_WW + ime_WW_A_WW
 
-      diag%Abkg = diag%Abkg + diag%permutation_factor*ime
+      diag%Amplitude = diag%Amplitude + diag%permutation_factor*ime
    endif
    return
 end subroutine amp_WWWW
 
 ! Triple EWK vertex diagram with fermions in t channel (V->4f)
-subroutine amp_WW_V_VV(diag)
+subroutine amp_VV_VtVp(diag)
    implicit none
    class(Single4VDiagram) :: diag
-   integer :: idV(1:4),idA(1:4),idSort(1:4)
+   integer :: idV(1:4),idA(1:4),idSort(1:4),idSort_loose(1:4)
    real(dp) :: qtV(1:4),qV(1:4,1:4)
    complex(dp) :: currentV(1:4,1:4),currentA(1:4,1:4)
-   integer :: ic,iz,nAonshells,order(1:4)
-   complex(dp) :: composite(1:4,1:2),ime
+   integer :: ic,iz,nAonshells,order(1:4),lineorder(1:4),iperm,nzgscomb,izgscomb,idzgs(1:2),nLoose
+   complex(dp) :: composite(1:4,1:2),nullcur(1:4),curzgs(1:4,1:3),scalarcomposite,ime
 
    ime=czero
+   nullcur(:)=czero
    nAonshells=0
    do ic=1,4
       currentV(:,ic)=fullV(ic)%propcurrent(:)
       currentA(:,ic)=fullA(ic)%propcurrent(:)
 
       idV(ic) = fullV(ic)%idVertex
+      if(idV(ic).eq.Not_a_particle_) then
+         idV(ic) = fullV(ic)%idVertex_flavorviolating
+      endif
       idA(ic) = fullA(ic)%idVertex
+      if(idA(ic).eq.Not_a_particle_) then
+         idA(ic) = fullA(ic)%idVertex_flavorviolating
+      endif
 
       if(idV(ic).ne.Not_a_particle_) then
          qV(:,ic) = fullV(ic)%pVertex(:)
@@ -2593,25 +3148,112 @@ subroutine amp_WW_V_VV(diag)
       idSort(ic)=idV(ic)
       if(idA(ic).eq.Pho_ .and. fullA(ic)%isOnshellBoson) then
          nAonshells = nAonshells+1
-         if(nAonshells.gt.1) return
+         if(nAonshells.gt.3) return ! The case of 3 on-shell As is for the diagram GG--H->ff->ffA
          idSort(ic)=idA(ic)
+      endif
+      idSort_loose(ic)=idSort(ic)
+      if(fullV(ic)%idVertex_flavorviolating.ne.Not_a_particle_) then
+         nLoose = nLoose+1
+         idSort_loose(ic)=fullV(ic)%idVertex_flavorviolating
       endif
    enddo
 
    order(:)=0
    if(nAonshells.eq.0) then
+      order(:)=Id_Order(4,idSort,(/ Z0_,Z0_,Z0_,Z0_ /)) ! Z0_ is dummy here, just to ensure identical fermions are present.
+   else if(nAonshells.eq.1) then
+      order(:)=Id_Order(4,idSort,(/ Z0_,Z0_,Z0_,Pho_ /)) ! Z0_ is dummy here, just to ensure identical fermions are present.
+   else if(nAonshells.eq.2) then
+      order(:)=Id_Order(4,idSort,(/ Z0_,Z0_,Pho_,Pho_ /)) ! Z0_ is dummy here, just to ensure identical fermions are present.
+   else
+      order(:)=Id_Order(4,idSort,(/ Z0_,Pho_,Pho_,Pho_ /)) ! Z0_ is dummy here, just to ensure identical fermions are present.
+   endif
+   if(order(1).ne.0 .and. order(2).ne.0 .and. order(3).ne.0 .and. order(4).ne.0 .and. do1HVertex) then ! HVV or Hff always enters here
+      do iperm=1,3
+         if(iperm.eq.1) then
+            lineorder(:)=(/1,2,3,4/) ! 1+2--H--3+4 / 3+4--H--1+2
+         else if(iperm.eq.2) then
+            lineorder(:)=(/1,3,2,4/) ! 1+3--H--2+4 / 2+4--H--1+3
+         else
+            lineorder(:)=(/1,4,2,3/) ! 1+4--H--2+3 / 2+3--H--1+4
+         endif
+
+         do ic=1,3,2
+            iz=ic+1
+            if(fullH(order(lineorder(4-ic)))%idVertex.eq.Not_a_particle_ .and. fullH(order(lineorder(6-iz)))%idVertex.eq.Not_a_particle_) then
+               cycle
+            endif
+
+            qtV(:) = -qV(:,order(lineorder(ic)))-qV(:,order(lineorder(iz)))
+            scalarcomposite = Hf_fZAHfpfp( &
+                                          (/ fullV(order(lineorder(4-ic))),fullV(order(lineorder(6-iz))) /), &
+                                          (/ fullA(order(lineorder(4-ic))),fullA(order(lineorder(6-iz))) /), &
+                                          (/ fullH(order(lineorder(4-ic))),fullH(order(lineorder(6-iz))) /)  &
+                                         ) ! H at the main vertex
+            ! Do (Z/A)(Z/A)H->ff(H/Z/A)
+            nzgscomb=2
+            if(idSort(order(lineorder(ic))).eq.Pho_) then
+               nzgscomb=nzgscomb-1
+            endif
+            if(idSort(order(lineorder(iz))).eq.Pho_) then
+               nzgscomb=nzgscomb-1
+            endif
+            nzgscomb=2**nzgscomb
+            do izgscomb=0,nzgscomb-1
+               curzgs(:,1)=nullcur(:)
+               if(btest(izgscomb,0)) then
+                  idzgs(1)=Pho_
+               else
+                  idzgs(1)=idSort(order(lineorder(ic))) ! Pass idSort on purpose so that id=(Z/A,A) are also supported.
+               endif
+               if(btest(izgscomb,1)) then
+                  idzgs(2)=Pho_
+               else
+                  idzgs(2)=idSort(order(lineorder(iz))) ! Pass idSort on purpose so that id=(Z/A,A) are also supported.
+               endif
+               if(idzgs(1).eq.Pho_) then
+                  curzgs(:,2)=currentA(:,order(lineorder(ic)))
+               else
+                  curzgs(:,2)=currentV(:,order(lineorder(ic)))
+               endif
+               if(idzgs(2).eq.Pho_) then
+                  curzgs(:,3)=currentA(:,order(lineorder(iz)))
+               else
+                  curzgs(:,3)=currentV(:,order(lineorder(iz)))
+               endif
+               ime = ime + scalarcomposite * VVHVertex( &
+                                                         (/ cmplx(qtV(:),kind=dp), cmplx(qV(:,order(lineorder(ic))),kind=dp), cmplx(qV(:,order(lineorder(iz))),kind=dp) /), &
+                                                         curzgs, &
+                                                         (/ Hig_, idzgs(1:2) /), &
+                                                         idzgs &
+                                                      )
+            enddo
+            ! HHH->ff(Z/A/H)
+            if(do3HVertex .and. idSort(order(lineorder(ic))).eq.Z0_ .and. idSort(order(lineorder(iz))).eq.Z0_) then
+               ime = ime + TripleHVertex( &
+                                          (/ cmplx(qtV(:),kind=dp), cmplx(qV(:,order(lineorder(ic))),kind=dp), cmplx(qV(:,order(lineorder(iz))),kind=dp) /), &
+                                          (/ scalarcomposite, fullH(order(lineorder(ic)))%propcurrent, fullH(order(lineorder(iz)))%propcurrent /), &
+                                          (/ Hig_, fullH(order(lineorder(ic)))%idVertex, fullH(order(lineorder(iz)))%idVertex /) &
+                                        )
+            endif
+
+         enddo
+      enddo
+   endif
+
+   ! From this point, nAonshell>1 has no applicability.
+   if(nAonshells.gt.1) then
+      return
+   endif
+   order(:)=0
+   if(nAonshells.eq.0) then
       order(:)=Id_Order(4,idSort,(/ Wp_,Wm_,Z0_,Z0_ /)) ! Z0_ is dummy here, just to ensure identical particles are present.
-   else!if(nAonshells.eq.1) then
+   else
       order(:)=Id_Order(4,idSort,(/ Wp_,Wm_,Z0_,Pho_ /)) ! Z0_ is dummy here, just to ensure identical particles are present.
    endif
-   if(order(1).ne.0 .and. order(2).ne.0 .and. order(3).ne.0 .and. order(4).ne.0) then
+   if(order(1).ne.0 .and. order(2).ne.0 .and. order(3).ne.0 .and. order(4).ne.0 .and. nLoose.lt.2) then
       ! WWZ/A.2fZ2f
       qtV(:) = -qV(:,order(1))-qV(:,order(2))
-      composite(:,1) = ZAf_fZAfpfp( (/ fullV(order(3)),fullV(order(4)) /), (/ fullA(order(3)),fullA(order(4)) /) ) ! Z at the main vertex
-      composite(:,2) = ZAf_fZAfpfp( (/ fullV(order(3)),fullV(order(4)) /), (/ fullA(order(3)),fullA(order(4)) /), useAcoupl=.true. ) ! A at the main vertex
-      ime = ime + &
-            TripleEWKVertex( (/ qtV(:), qV(:,order(1)), qV(:,order(2)) /), (/ composite(:,1), currentV(:,order(1)), currentV(:,order(2)) /), (/ Z0_ , idSort(order(1)), idSort(order(2)) /) ) &
-          + TripleEWKVertex( (/ qtV(:), qV(:,order(1)), qV(:,order(2)) /), (/ composite(:,2), currentV(:,order(1)), currentV(:,order(2)) /), (/ Pho_, idSort(order(1)), idSort(order(2)) /) )
 
       ! W(ic)Z(iz)W.ffpWffp
       do ic=1,2
@@ -2624,6 +3266,37 @@ subroutine amp_WW_V_VV(diag)
             ime = ime + TripleEWKVertex( (/ qtV(:), qV(:,order(ic)), qV(:,order(iz)) /), (/ composite(:,1), currentV(:,order(ic)), currentV(:,order(iz)) /), (/ idSort(order(3-ic)), idSort(order(ic)), idSort(order(iz)) /) )
          enddo
       enddo
+
+      if(nLoose.eq.0) then
+         composite(:,1) = ZAf_fZAHfpfp( &
+                                       (/ fullV(order(3)),fullV(order(4)) /), &
+                                       (/ fullA(order(3)),fullA(order(4)) /), &
+                                       (/ fullH(order(3)),fullH(order(4)) /)  &
+                                       ) ! Z at the main vertex
+         composite(:,2) = ZAf_fZAHfpfp( &
+                                       (/ fullV(order(3)),fullV(order(4)) /), &
+                                       (/ fullA(order(3)),fullA(order(4)) /), &
+                                       (/ fullH(order(3)),fullH(order(4)) /), &
+                                       useAcoupl=.true. ) ! A at the main vertex
+         ime = ime + &
+               TripleEWKVertex( (/ qtV(:), qV(:,order(1)), qV(:,order(2)) /), (/ composite(:,1), currentV(:,order(1)), currentV(:,order(2)) /), (/ Z0_ , idSort(order(1)), idSort(order(2)) /) ) &
+             + TripleEWKVertex( (/ qtV(:), qV(:,order(1)), qV(:,order(2)) /), (/ composite(:,2), currentV(:,order(1)), currentV(:,order(2)) /), (/ Pho_, idSort(order(1)), idSort(order(2)) /) )
+
+         if(do1HVertex) then
+            scalarcomposite = Hf_fZAHfpfp( &
+                                       (/ fullV(order(3)),fullV(order(4)) /), &
+                                       (/ fullA(order(3)),fullA(order(4)) /), &
+                                       (/ fullH(order(3)),fullH(order(4)) /)  &
+                                       ) ! H at the main vertex
+            ime = ime + &
+                        scalarcomposite*VVHVertex( &
+                                                   (/ cmplx(qtV(:),kind=dp), cmplx(qV(:,order(1)),kind=dp), cmplx(qV(:,order(2)),kind=dp) /), &
+                                                   (/ nullcur(:), currentV(:,order(1)), currentV(:,order(2)) /), &
+                                                   (/ Hig_, idSort(order(1)), idSort(order(2)) /), &
+                                                   (/ idSort(order(1)), idSort(order(2)) /) &
+                                                 )
+         endif
+      endif
    endif
 
    order(:)=0
@@ -2645,9 +3318,9 @@ subroutine amp_WW_V_VV(diag)
       enddo
    endif
 
-   diag%Abkg = diag%Abkg + diag%permutation_factor*ime
+   diag%Amplitude = diag%Amplitude + diag%permutation_factor*ime
    return
-end subroutine amp_WW_V_VV
+end subroutine amp_VV_VtVp
 
 ! Zs or Ws in the t-channel
 subroutine amp_tVVV(diag)
@@ -2656,16 +3329,14 @@ subroutine amp_tVVV(diag)
    class(Single4VDiagram) :: diag
    integer :: idV(1:4),idA(1:4),idSort(1:4),idSort_loose(1:4)
    real(dp) :: qV(1:4,1:4),qtchannel(1:4)
-   complex(dp) :: currentV(1:4,1:4),currentA(1:4,1:4)
    integer :: ic,iperm,nLoose,nAonshells,order(1:4),lineorder(1:4)
-   complex(dp) :: composite(1:4,1:4),ime
+   complex(dp) :: composite(1:4,1:4),scalarcomposite(1:2),ime
 
    ime=czero
    nAonshells=0
+   composite(:,:)=czero
+   scalarcomposite(:)=czero
    do ic=1,4
-      currentV(:,ic)=fullV(ic)%propcurrent(:)
-      currentA(:,ic)=fullA(ic)%propcurrent(:)
-
       idV(ic) = fullV(ic)%idVertex
       if(idV(ic).eq.Not_a_particle_) then
          idV(ic) = fullV(ic)%idVertex_flavorviolating
@@ -2679,6 +3350,8 @@ subroutine amp_tVVV(diag)
          qV(:,ic) = fullV(ic)%pVertex(:)
       elseif(idA(ic).ne.Not_a_particle_) then
          qV(:,ic) = fullA(ic)%pVertex(:)
+      else ! Failure!
+         return
       endif
 
       if(idA(ic).eq.Pho_ .and. fullA(ic)%isOnshellBoson) then
@@ -2696,15 +3369,19 @@ subroutine amp_tVVV(diag)
    enddo
 
    if(nAonshells.eq.3) then
-      ! Case 0: Z.A+A+A
+   ! Case 0: Z.A+A+A
       order(:)=Id_Order(4,idSort,(/ Z0_,Pho_,Pho_,Pho_ /)) ! Z0_ ensures identical fermions are present.
       if(order(1).ne.0 .and. order(2).ne.0 .and. order(3).ne.0 .and. order(4).ne.0 .and. nLoose.eq.0) then ! nLoose=0 is to ensure that flavor violation does not ever happen at the base current
          ! Add the 3V.base current diagrams
-         ime = ime + f_NV_fp( (/ fullV(order(1)),fullV(order(2)),fullV(order(3)),fullV(order(4)) /), (/ fullA(order(1)),fullA(order(2)),fullA(order(3)),fullA(order(4)) /) )
+         ime = ime + f_NV_fp( &
+                              (/ fullV(order(1)),fullV(order(2)),fullV(order(3)),fullV(order(4)) /), &
+                              (/ fullA(order(1)),fullA(order(2)),fullA(order(3)),fullA(order(4)) /), &
+                              (/ fullH(order(1)),fullH(order(2)),fullH(order(3)),fullH(order(4)) /)  &
+                              )
       endif
-      ! End Case 0 Z.A+A+A
+   ! End Case 0 Z.A+A+A
    else ! From here on, disallow 3A states
-      ! Case 1: 12.Z.34.Z.56.Z.78
+   ! Case 1: 12.Z.34.Z.56.Z.78
       if(nAonshells.eq.0) then
          order(:)=Id_Order(4,idSort,(/ Z0_,Z0_,Z0_,Z0_ /)) ! Z0_ is dummy here, just to ensure identical fermions are present.
       else if(nAonshells.eq.1) then
@@ -2726,20 +3403,35 @@ subroutine amp_tVVV(diag)
             endif
 
             qtchannel(:) = -qV(:,order(lineorder(1)))-qV(:,lineorder(2))
+            scalarcomposite(:)=czero
             do ic=1,2
-               if(ic.eq.1) then
-                  composite(:,ic)   = ZAf_fZAfpfp( (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), (/ fullA(order(lineorder(2*ic-1))),fullA(order(lineorder(2*ic))) /) )                   ! Z at the main vertex
-                  composite(:,ic+2) = ZAf_fZAfpfp( (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), (/ fullA(order(lineorder(2*ic-1))),fullA(order(lineorder(2*ic))) /), useAcoupl=.true. ) ! A at the main vertex
-               else
-                  composite(:,ic)   = ZAf_fZAfpfp( (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), (/ fullA(order(lineorder(2*ic-1))),fullA(order(lineorder(2*ic))) /), useRootPropagator=.false. )                   ! Z at the main vertex
-                  composite(:,ic+2) = ZAf_fZAfpfp( (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), (/ fullA(order(lineorder(2*ic-1))),fullA(order(lineorder(2*ic))) /), useAcoupl=.true., useRootPropagator=.false. ) ! A at the main vertex
+               composite(:,ic)   = ZAf_fZAHfpfp( &
+                                                (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), &
+                                                (/ fullA(order(lineorder(2*ic-1))),fullA(order(lineorder(2*ic))) /), &
+                                                (/ fullH(order(lineorder(2*ic-1))),fullH(order(lineorder(2*ic))) /), &
+                                                useRootPropagator=(ic.eq.1) )                   ! Z at the main vertex
+               composite(:,ic+2) = ZAf_fZAHfpfp( &
+                                                (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), &
+                                                (/ fullA(order(lineorder(2*ic-1))),fullA(order(lineorder(2*ic))) /), &
+                                                (/ fullH(order(lineorder(2*ic-1))),fullH(order(lineorder(2*ic))) /), &
+                                                useAcoupl=.true., useRootPropagator=(ic.eq.1) ) ! A at the main vertex
+               if(do1HVertex) then
+                  scalarcomposite(ic) = Hf_fZAHfpfp( &
+                                                   (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), &
+                                                   (/ fullA(order(lineorder(2*ic-1))),fullA(order(lineorder(2*ic))) /), &
+                                                   (/ fullH(order(lineorder(2*ic-1))),fullH(order(lineorder(2*ic))) /), &
+                                                   useRootPropagator=(ic.eq.1) )                ! H at the main vertex
                endif
             enddo
-            ime = ime + (composite(:,1).dot.composite(:,2)) + (composite(:,3).dot.composite(:,4))
+            ime = ime + (composite(:,1).dot.composite(:,2)) + (composite(:,3).dot.composite(:,4)) + scalarcomposite(1)*scalarcomposite(2)
          enddo
 
       ! Add the 3V.base current diagrams
-      ime = ime + f_NV_fp( (/ fullV(order(1)),fullV(order(2)),fullV(order(3)),fullV(order(4)) /), (/ fullA(order(1)),fullA(order(2)),fullA(order(3)),fullA(order(4)) /) )
+      ime = ime + f_NV_fp( &
+                           (/ fullV(order(1)),fullV(order(2)),fullV(order(3)),fullV(order(4)) /), &
+                           (/ fullA(order(1)),fullA(order(2)),fullA(order(3)),fullA(order(4)) /), &
+                           (/ fullH(order(1)),fullH(order(2)),fullH(order(3)),fullH(order(4)) /)  &
+                           )
       endif
       ! End Case 1 obs(ZZZZ)
 
@@ -2765,42 +3457,69 @@ subroutine amp_tVVV(diag)
             endif
 
             qtchannel(:) = -qV(:,order(lineorder(1)))-qV(:,lineorder(2))
+            scalarcomposite(:)=czero
             do ic=1,2
                if(iperm.lt.3) then
-                  composite(:,ic)  = Wf_fZAfpfp( (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), (/ fullA(order(lineorder(2*ic-1))),fullA(order(lineorder(2*ic))) /), useRootPropagator=.false. ) ! Z at the branch
-                  if(nAonshells.eq.0) then
+                  composite(:,ic)  = Wf_fZAHfpfp( &
+                                                 (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), &
+                                                 (/ fullA(order(lineorder(2*ic-1))),fullA(order(lineorder(2*ic))) /), &
+                                                 (/ fullH(order(lineorder(2*ic-1))),fullH(order(lineorder(2*ic))) /), &
+                                                 useRootPropagator=.false. ) ! Z at the branch
+                  if( .not.(fullV(order(lineorder(2*ic)))%isOnshellBoson .or. fullV(order(lineorder(2*ic-1)))%isOnshellBoson) ) then
                      composite(:,ic+2) = Wf_fWfpfp( (/ fullV(order(lineorder(2*ic))),fullV(order(lineorder(2*ic-1))) /), useRootPropagator=.false. ) ! Swaps lineorder to pass ~Z first                                ! W at the branch
                   else
                      composite(:,ic+2) = czero
                   endif
-                  composite(:,ic)=composite(:,ic)+composite(:,ic+2)
+                  composite(:,ic)=composite(:,ic)+composite(:,ic+2) ! Can add bc. the W at the root is the same.
                   composite(:,ic+2)=czero
                   if(ic.eq.1) then ! Notice that the function calls above do not compute the same propagator twice. Instead, calculate it here.
                      composite(:,ic)=VectorPropagator(Wp_,qtchannel,composite(:,ic))
                   endif
                else
                   if(ic.eq.1) then
-                     composite(:,ic)   = ZAf_fWfpfp ( (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /) )                                                                                        ! Z at the main vertex
-                     composite(:,ic+2) = ZAf_fWfpfp ( (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), useAcoupl=.true. )                                                                      ! A at the main vertex
+                     composite(:,ic)   = ZAf_fWfpfp ( (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /) )                   ! Z at the main vertex
+                     composite(:,ic+2) = ZAf_fWfpfp ( (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), useAcoupl=.true. ) ! A at the main vertex
+                     if(do1HVertex) then
+                        scalarcomposite(ic)   = Hf_fWfpfp ( (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /) )             ! H at the main vertex
+                     endif
                   else
-                     composite(:,ic)   = ZAf_fZAfpfp( (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), (/ fullA(order(lineorder(2*ic-1))),fullA(order(lineorder(2*ic))) /), useRootPropagator=.false. )                   ! Z at the main vertex
-                     composite(:,ic+2) = ZAf_fZAfpfp( (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), (/ fullA(order(lineorder(2*ic-1))),fullA(order(lineorder(2*ic))) /), useAcoupl=.true., useRootPropagator=.false. ) ! A at the main vertex
+                     composite(:,ic)   = ZAf_fZAHfpfp( &
+                                                      (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), &
+                                                      (/ fullA(order(lineorder(2*ic-1))),fullA(order(lineorder(2*ic))) /), &
+                                                      (/ fullH(order(lineorder(2*ic-1))),fullH(order(lineorder(2*ic))) /), &
+                                                      useRootPropagator=.false. )                   ! Z at the main vertex
+                     composite(:,ic+2) = ZAf_fZAHfpfp( &
+                                                      (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), &
+                                                      (/ fullA(order(lineorder(2*ic-1))),fullA(order(lineorder(2*ic))) /), &
+                                                      (/ fullH(order(lineorder(2*ic-1))),fullH(order(lineorder(2*ic))) /), &
+                                                      useAcoupl=.true., useRootPropagator=.false. ) ! A at the main vertex
+                     if(do1HVertex) then
+                        scalarcomposite(ic)   = Hf_fZAHfpfp( &
+                                                         (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), &
+                                                         (/ fullA(order(lineorder(2*ic-1))),fullA(order(lineorder(2*ic))) /), &
+                                                         (/ fullH(order(lineorder(2*ic-1))),fullH(order(lineorder(2*ic))) /), &
+                                                         useRootPropagator=.false. )                ! H at the main vertex
+                     endif
                   endif
                endif
             enddo
             if(iperm.lt.3) then
                ime = ime + (composite(:,1).dot.composite(:,2))
             else
-               ime = ime + (composite(:,1).dot.composite(:,3)) + (composite(:,2).dot.composite(:,4))
+               ime = ime + (composite(:,1).dot.composite(:,3)) + (composite(:,2).dot.composite(:,4)) + scalarcomposite(1)*scalarcomposite(2)
             endif
          enddo
 
          ! Add the 3V.base current diagrams
-         ime = ime + f_NV_fp( (/ fullV(order(1)),fullV(order(2)),fullV(order(3)),fullV(order(4)) /), (/ fullA(order(1)),fullA(order(2)),fullA(order(3)),fullA(order(4)) /) )
+         ime = ime + f_NV_fp( &
+                              (/ fullV(order(1)),fullV(order(2)),fullV(order(3)),fullV(order(4)) /), &
+                              (/ fullA(order(1)),fullA(order(2)),fullA(order(3)),fullA(order(4)) /), &
+                              (/ fullH(order(1)),fullH(order(2)),fullH(order(3)),fullH(order(4)) /)  &
+                              )
       endif
-      ! End Case 2 obs(WWZZ)
+   ! End Case 2 obs(WWZZ)
 
-      ! Case 3: 12.W+.34.Z.56.W-.78 == obs(WWWW)
+   ! Case 3: 12.W+.34.Z.56.W-.78 == obs(WWWW)
       order(:)=Id_Order(4,idV,(/ Wp_,Wm_,Wp_,Wm_ /))
       if(order(1).ne.0 .and. order(2).ne.0 .and. order(3).ne.0 .and. order(4).ne.0) then
          do iperm=1,2
@@ -2811,25 +3530,30 @@ subroutine amp_tVVV(diag)
             endif
 
             qtchannel(:) = -qV(:,order(lineorder(1)))-qV(:,lineorder(2))
+            scalarcomposite(:)=czero
             do ic=1,2
-               if(ic.eq.1) then
-                  composite(:,ic)   = ZAf_fWfpfp( (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /) )                   ! Z at the main vertex
-                  composite(:,ic+2) = ZAf_fWfpfp( (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), useAcoupl=.true. ) ! A at the main vertex
-               else
-                  composite(:,ic)   = ZAf_fWfpfp( (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), useRootPropagator=.false. )                   ! Z at the main vertex
-                  composite(:,ic+2) = ZAf_fWfpfp( (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), useAcoupl=.true., useRootPropagator=.false. ) ! A at the main vertex
+               composite(:,ic)   = ZAf_fWfpfp( (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), useRootPropagator=(ic.eq.1) )                   ! Z at the main vertex
+               composite(:,ic+2) = ZAf_fWfpfp( (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), useAcoupl=.true., useRootPropagator=(ic.eq.1) ) ! A at the main vertex
+               if(do1HVertex) then
+                  scalarcomposite(ic) = Hf_fWfpfp( &
+                                                   (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), &
+                                                   useRootPropagator=(ic.eq.1) )                ! H at the main vertex
                endif
             enddo
-            ime = ime + (composite(:,1).dot.composite(:,2)) + (composite(:,3).dot.composite(:,4))
+            ime = ime + (composite(:,1).dot.composite(:,2)) + (composite(:,3).dot.composite(:,4)) + scalarcomposite(1)*scalarcomposite(2)
          enddo
 
          ! Add the 3V.base current diagrams
-         ime = ime + f_NV_fp( (/ fullV(order(1)),fullV(order(2)),fullV(order(3)),fullV(order(4)) /), (/ fullA(order(1)),fullA(order(2)),fullA(order(3)),fullA(order(4)) /) )
+         ime = ime + f_NV_fp( &
+                              (/ fullV(order(1)),fullV(order(2)),fullV(order(3)),fullV(order(4)) /), &
+                              (/ fullA(order(1)),fullA(order(2)),fullA(order(3)),fullA(order(4)) /), &
+                              (/ fullH(order(1)),fullH(order(2)),fullH(order(3)),fullH(order(4)) /)  &
+                              )
       endif
-      ! End Case 3 obs(WWWW)
+   ! End Case 3 obs(WWWW)
    endif
 
-   diag%Abkg = diag%Abkg + diag%permutation_factor*ime
+   diag%Amplitude = diag%Amplitude + diag%permutation_factor*ime
    return
 end subroutine amp_tVVV
 
