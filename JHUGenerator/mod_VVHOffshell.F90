@@ -9,17 +9,18 @@ implicit none
 
 private
 
+   integer, parameter :: kbsi=2,ksig=1,kbkg=0 ! These are used in V->4f functions
    real(dp), private, parameter :: tol = 0.00000010_dp
-   real(8), parameter :: T3_nulep(1:2) = (/ 0.5d0, -0.5d0 /)
-   real(8), parameter :: T3_ud(1:2) = (/ 0.5d0, -0.5d0 /)
-   real(8), parameter :: Q_nulep(1:2) = (/ 0d0, -1d0 /)
-   real(8), parameter :: Q_ud(1:2) = (/ 0.66666666666666666666666666667d0, -0.33333333333333333333333333333d0 /)
-   real(8), parameter :: xw = sitW**2
-   real(8), parameter :: cw = dsqrt(1d0-xw)
-   real(8), parameter :: eA = -dsqrt(4d0*pi*alpha_QED) ! eA=-e
-   real(8), parameter :: eW = -eA/sitW ! g=e/sintW
-   real(8), parameter :: eZ = eW*cw ! g*costw
-   real(8), parameter :: eW_cW = eW/cw ! g/costw
+   real(dp), parameter :: T3_nulep(1:2) = (/ 0.5d0, -0.5d0 /)
+   real(dp), parameter :: T3_ud(1:2) = (/ 0.5d0, -0.5d0 /)
+   real(dp), parameter :: Q_nulep(1:2) = (/ 0d0, -1d0 /)
+   real(dp), parameter :: Q_ud(1:2) = (/ 0.66666666666666666666666666667d0, -0.33333333333333333333333333333d0 /)
+   real(dp), parameter :: xw = sitW**2
+   real(dp), parameter :: cw = dsqrt(1d0-xw)
+   real(dp), parameter :: eA = -dsqrt(4d0*pi*alpha_QED) ! eA=-e
+   real(dp), parameter :: eW = -eA/sitW ! g=e/sintW
+   real(dp), parameter :: eZ = eW*cw ! g*costw
+   real(dp), parameter :: eW_cW = eW/cw ! g/costw
 
    ! Temporary parameters
    logical, parameter :: do1HVertex = .true. ! HVV or Hff
@@ -29,24 +30,6 @@ private
    logical, parameter :: doSignal = (do1HVertex .or. do2HVertex .or. do3HVertex .or. do4HVertex)
    logical, parameter :: doBkg = .true.
 
-   type :: IntPtr
-      integer, pointer :: ref
-   end type
-   type :: RealPtr
-      real(dp), pointer :: ref
-   end type
-   type :: ComplexPtr
-      complex(dp), pointer :: ref
-   end type
-   type :: IntArrayPtr
-      integer, dimension(:), pointer :: ref
-   end type
-   type :: RealArrayPtr
-      real(dp), dimension(:), pointer :: ref
-   end type
-   type :: ComplexArrayPtr
-      complex(dp), dimension(:), pointer :: ref
-   end type
 
    type :: ScalarCurrent
       ! Inputs to store
@@ -93,10 +76,6 @@ private
       contains
          procedure :: init_VACurrent
          procedure, nopass :: reset_VACurrent
-   end type
-
-   type :: VACurrentPtr
-      type(VACurrent), pointer :: ref
    end type
 
    type :: Single4VDiagram
@@ -1697,13 +1676,14 @@ function TripleEWKVertex(p,current,idV,useAcoupl)
 end function TripleEWKVertex
 
 ! (A/Z)ff,f->fA/Zf'f'
-function ZAf_fZAHfpfp(diagVCurrent, diagACurrent, diagHCurrent, useAcoupl, useRootPropagator)
+function ZAf_fZAHfpfp(diagVCurrent, diagACurrent, diagHCurrent, useAcoupl, useRootPropagator, usebsi)
    implicit none
    type(VACurrent),intent(in) :: diagVCurrent(1:2)
    type(VACurrent),intent(in) :: diagACurrent(1:2)
    type(ScalarCurrent),intent(in) :: diagHCurrent(1:2)
    logical, optional :: useAcoupl
    logical, optional :: useRootPropagator
+   integer, optional :: usebsi
    type(VACurrent) :: activeCurrent(1:2)
    complex(dp) :: ZAf_fZAHfpfp(1:4), restmp(1:4) ! Result is a 'current'
    integer :: testAcoupl
@@ -1711,7 +1691,7 @@ function ZAf_fZAHfpfp(diagVCurrent, diagACurrent, diagHCurrent, useAcoupl, useRo
    complex(dp) :: q1scprop(1:2),massPass(1:2,1:2),gFivePass(1:2,1:2),scalarcontribution(1:2),pseudoscalarcontribution(1:2),innerprefactor(1:2),compositeCurrent(1:4,1:2)
    integer :: iV, i1, i2
    logical :: hasRootProp
-   integer :: bsiCode
+   integer :: bsicode
 
    testAcoupl=0
    if(present(useAcoupl)) then
@@ -1721,6 +1701,11 @@ function ZAf_fZAHfpfp(diagVCurrent, diagACurrent, diagHCurrent, useAcoupl, useRo
       hasRootProp=useRootPropagator
    else
       hasRootProp=.true.
+   endif
+   if( present(usebsi) ) then
+      bsicode=usebsi
+   else
+      bsicode=kbsi
    endif
 
    ZAf_fZAHfpfp(:) = czero
@@ -1760,7 +1745,7 @@ function ZAf_fZAHfpfp(diagVCurrent, diagACurrent, diagHCurrent, useAcoupl, useRo
       ! Z/A->f1f1, f1->f1 Z->f2f2
       ! V2=Z
       activeCurrent(2)=diagVCurrent(i2)
-      if(activeCurrent(2)%idVertex.ne.Not_a_particle_) then
+      if(activeCurrent(2)%idVertex.ne.Not_a_particle_ .and. bsicode.ne.ksig) then
          innerprefactor(1) = CurrentPrefactor((/ activeCurrent(1)%id(1),-activeCurrent(1)%id(1)/),activeCurrent(1)%hel) ! Coupling for the fermion in the middle to the boson branchingo out
          innerprefactor(2) = CurrentPrefactor((/ -activeCurrent(1)%id(2), activeCurrent(1)%id(2)/),activeCurrent(1)%hel) ! Coupling for the fermion in the middle to the boson branchingo out
          do iV=1,2
@@ -1770,7 +1755,7 @@ function ZAf_fZAHfpfp(diagVCurrent, diagACurrent, diagHCurrent, useAcoupl, useRo
       ! Z/A->f1f1, f1->f1 A->f2f2
       ! V2=A
       activeCurrent(2)=diagACurrent(i2)
-      if(activeCurrent(2)%idVertex.ne.Not_a_particle_) then
+      if(activeCurrent(2)%idVertex.ne.Not_a_particle_ .and. bsicode.ne.ksig) then
          innerprefactor(1) = CurrentPrefactor((/ activeCurrent(1)%id(1),-activeCurrent(1)%id(1)/),activeCurrent(1)%hel, useA=.true.) ! Coupling for the fermion in the middle to the boson branchingo out
          innerprefactor(2) = CurrentPrefactor((/ -activeCurrent(1)%id(2), activeCurrent(1)%id(2)/),activeCurrent(1)%hel, useA=.true.) ! Coupling for the fermion in the middle to the boson branchingo out
          do iV=1,2
@@ -1779,7 +1764,7 @@ function ZAf_fZAHfpfp(diagVCurrent, diagACurrent, diagHCurrent, useAcoupl, useRo
       endif
       ! Z/A->f1f1, f1->f1 H->f2f2
       ! V2=H
-      if(diagHCurrent(i2)%idVertex.ne.Not_a_particle_ .and. do1HVertex) then
+      if(diagHCurrent(i2)%idVertex.ne.Not_a_particle_ .and. do1HVertex .and. bsicode.ne.kbkg) then
          scalarcontribution(1) = ScalarFFPrefactor((/ activeCurrent(1)%id(1),-activeCurrent(1)%id(1)/))*diagHCurrent(i2)%propcurrent
          pseudoscalarcontribution(1) = PseudoScalarFFPrefactor((/ activeCurrent(1)%id(1),-activeCurrent(1)%id(1)/))*diagHCurrent(i2)%propcurrent
          scalarcontribution(2) = ScalarFFPrefactor((/ -activeCurrent(1)%id(2), activeCurrent(1)%id(2)/))*diagHCurrent(i2)%propcurrent
@@ -1789,7 +1774,6 @@ function ZAf_fZAHfpfp(diagVCurrent, diagACurrent, diagHCurrent, useAcoupl, useRo
             gFivePass(iV,iV) = pseudoscalarcontribution(iV)
          enddo
       endif
-
 
       restmp = gamma_gamma_mu(3,(/ compositeCurrent(:,1), cmplx(q1(:,1),kind=dp) /),activeCurrent(1)%Ub,activeCurrent(1)%V, whichUndotted=3, massMatrix=massPass(:,1), gammaFiveMatrix=gFivePass(:,1) )*q1scprop(1) + &
                gamma_gamma_mu(3,(/ cmplx(q1(:,2),kind=dp), compositeCurrent(:,2) /),activeCurrent(1)%Ub,activeCurrent(1)%V, massMatrix=massPass(:,2), gammaFiveMatrix=gFivePass(:,2) )*q1scprop(2)
@@ -1886,23 +1870,30 @@ function ZAf_fWfpfp(diagVCurrent, useAcoupl, useRootPropagator)
 end function ZAf_fWfpfp
 
 ! Wff,f->f(A/Z)f'f'
-function Wf_fZAHfpfp(diagVCurrent, diagACurrent, diagHCurrent, useRootPropagator)
+function Wf_fZAHfpfp(diagVCurrent, diagACurrent, diagHCurrent, useRootPropagator, usebsi)
    implicit none
    type(VACurrent),intent(in) :: diagVCurrent(1:2)
    type(VACurrent),intent(in) :: diagACurrent(1:2)
    type(ScalarCurrent),intent(in) :: diagHCurrent(1:2)
    logical, optional :: useRootPropagator
+   integer, optional :: usebsi
    type(VACurrent) :: activeCurrent(1:2)
    complex(dp) :: Wf_fZAHfpfp(1:4), restmp(1:4) ! Result is a 'current'
    real(dp) :: q(1:4),q1(1:4,1:2)
    complex(dp) :: q1scprop(1:2),massPass(1:2,1:2),gFivePass(1:2,1:2),scalarcontribution(1:2),pseudoscalarcontribution(1:2),innerprefactor(1:2),compositeCurrent(1:4,1:2)
    integer :: iV, i1, i2
    logical :: hasRootProp
+   integer :: bsicode
 
    if( present(useRootPropagator) ) then
       hasRootProp=useRootPropagator
    else
       hasRootProp=.true.
+   endif
+   if( present(usebsi) ) then
+      bsicode=usebsi
+   else
+      bsicode=kbsi
    endif
 
    Wf_fZAHfpfp(:) = czero
@@ -1939,7 +1930,7 @@ function Wf_fZAHfpfp(diagVCurrent, diagACurrent, diagHCurrent, useRootPropagator
       ! W->f1f1, f1->f1 Z->f2f2
       ! V2=Z
       activeCurrent(2)=diagVCurrent(i2)
-      if(activeCurrent(2)%idVertex.ne.Not_a_particle_) then
+      if(activeCurrent(2)%idVertex.ne.Not_a_particle_ .and. bsicode.ne.ksig) then
          innerprefactor(1) = CurrentPrefactor((/ activeCurrent(1)%id(1),-activeCurrent(1)%id(1)/),activeCurrent(1)%hel) ! Coupling for the fermion in the middle to the boson branchingo out
          innerprefactor(2) = CurrentPrefactor((/ -activeCurrent(1)%id(2), activeCurrent(1)%id(2)/),activeCurrent(1)%hel) ! Coupling for the fermion in the middle to the boson branchingo out
          do iV=1,2
@@ -1949,7 +1940,7 @@ function Wf_fZAHfpfp(diagVCurrent, diagACurrent, diagHCurrent, useRootPropagator
       ! W->f1f1, f1->f1 A->f2f2
       ! V2=A
       activeCurrent(2)=diagACurrent(i2)
-      if(activeCurrent(2)%idVertex.ne.Not_a_particle_) then
+      if(activeCurrent(2)%idVertex.ne.Not_a_particle_ .and. bsicode.ne.ksig) then
          innerprefactor(1) = CurrentPrefactor((/ activeCurrent(1)%id(1),-activeCurrent(1)%id(1)/),activeCurrent(1)%hel, useA=.true.) ! Coupling for the fermion in the middle to the boson branchingo out
          innerprefactor(2) = CurrentPrefactor((/ -activeCurrent(1)%id(2), activeCurrent(1)%id(2)/),activeCurrent(1)%hel, useA=.true.) ! Coupling for the fermion in the middle to the boson branchingo out
          do iV=1,2
@@ -1958,7 +1949,7 @@ function Wf_fZAHfpfp(diagVCurrent, diagACurrent, diagHCurrent, useRootPropagator
       endif
       ! Z/A->f1f1, f1->f1 H->f2f2
       ! V2=H
-      if(diagHCurrent(i2)%idVertex.ne.Not_a_particle_ .and. do1HVertex) then
+      if(diagHCurrent(i2)%idVertex.ne.Not_a_particle_ .and. do1HVertex .and. bsicode.ne.kbkg) then
          scalarcontribution(1) = ScalarFFPrefactor((/ activeCurrent(1)%id(1),-activeCurrent(1)%id(1)/))*diagHCurrent(i2)%propcurrent
          pseudoscalarcontribution(1) = PseudoScalarFFPrefactor((/ activeCurrent(1)%id(1),-activeCurrent(1)%id(1)/))*diagHCurrent(i2)%propcurrent
          scalarcontribution(2) = ScalarFFPrefactor((/ -activeCurrent(1)%id(2), activeCurrent(1)%id(2)/))*diagHCurrent(i2)%propcurrent
@@ -2071,26 +2062,36 @@ end function Wf_fWfpfp
 
 
 ! Hff,f->fA/Zf'f'
-function Hf_fZAHfpfp(diagVCurrent, diagACurrent, diagHCurrent, useRootPropagator)
+function Hf_fZAHfpfp(diagVCurrent, diagACurrent, diagHCurrent, useRootPropagator, usebsi) ! Keep usebsi here for future use, but there is no actual use in 4V diagrams since the root itself has a Higgs
    implicit none
    type(VACurrent),intent(in) :: diagVCurrent(1:2)
    type(VACurrent),intent(in) :: diagACurrent(1:2)
    type(ScalarCurrent),intent(in) :: diagHCurrent(1:2)
    logical, optional :: useRootPropagator
+   integer, optional :: usebsi
    type(VACurrent) :: activeCurrent
    complex(dp) :: Hf_fZAHfpfp, restmp
    real(dp) :: q(1:4),q1(1:4,1:2)
    complex(dp) :: curnull(1:4), q1scprop(1:2),massPass(1:3,1:2),gFivePass(1:3,1:2),scalarcontribution(1:2),pseudoscalarcontribution(1:2),innerprefactor(1:2),compositeCurrent(1:4,1:2)
    integer :: iV, i1, i2
    logical :: hasRootProp
+   integer :: bsicode
 
    if( present(useRootPropagator) ) then
       hasRootProp=useRootPropagator
    else
       hasRootProp=.true.
    endif
+   if( present(usebsi) ) then
+      bsicode=usebsi
+   else
+      bsicode=kbsi
+   endif
 
    Hf_fZAHfpfp = czero
+   if(.not.do1HVertex) then
+      return
+   endif
    curnull(:)=czero ! Just a 0-current
 
    ! Calculate total "q"
@@ -2123,7 +2124,7 @@ function Hf_fZAHfpfp(diagVCurrent, diagACurrent, diagHCurrent, useRootPropagator
       ! Z/A->f1f1, f1->f1 Z->f2f2
       ! V2=Z
       activeCurrent=diagVCurrent(i2)
-      if(activeCurrent%idVertex.ne.Not_a_particle_) then
+      if(activeCurrent%idVertex.ne.Not_a_particle_ .and. bsicode.ne.ksig) then
          innerprefactor(1) = CurrentPrefactor((/ diagHCurrent(i1)%id(1),-diagHCurrent(i1)%id(1)/),diagHCurrent(i1)%hel) ! Coupling for the fermion in the middle to the boson branchingo out
          innerprefactor(2) = CurrentPrefactor((/ -diagHCurrent(i1)%id(2), diagHCurrent(i1)%id(2)/),diagHCurrent(i1)%hel) ! Coupling for the fermion in the middle to the boson branchingo out
          do iV=1,2
@@ -2133,7 +2134,7 @@ function Hf_fZAHfpfp(diagVCurrent, diagACurrent, diagHCurrent, useRootPropagator
       ! Z/A->f1f1, f1->f1 A->f2f2
       ! V2=A
       activeCurrent=diagACurrent(i2)
-      if(activeCurrent%idVertex.ne.Not_a_particle_) then
+      if(activeCurrent%idVertex.ne.Not_a_particle_ .and. bsicode.ne.ksig) then
          innerprefactor(1) = CurrentPrefactor((/ diagHCurrent(i1)%id(1),-diagHCurrent(i1)%id(1)/),diagHCurrent(i1)%hel, useA=.true.) ! Coupling for the fermion in the middle to the boson branchingo out
          innerprefactor(2) = CurrentPrefactor((/ -diagHCurrent(i1)%id(2), diagHCurrent(i1)%id(2)/),diagHCurrent(i1)%hel, useA=.true.) ! Coupling for the fermion in the middle to the boson branchingo out
          do iV=1,2
@@ -2142,7 +2143,7 @@ function Hf_fZAHfpfp(diagVCurrent, diagACurrent, diagHCurrent, useRootPropagator
       endif
       ! Z/A->f1f1, f1->f1 H->f2f2
       ! V2=H
-      if(diagHCurrent(i2)%idVertex.ne.Not_a_particle_ .and. do1HVertex) then
+      if(diagHCurrent(i2)%idVertex.ne.Not_a_particle_ .and. do1HVertex .and. bsicode.ne.kbkg) then
          scalarcontribution(1) = ScalarFFPrefactor((/ diagHCurrent(i1)%id(1),-diagHCurrent(i1)%id(1)/))*diagHCurrent(i2)%propcurrent
          pseudoscalarcontribution(1) = PseudoScalarFFPrefactor((/ diagHCurrent(i1)%id(1),-diagHCurrent(i1)%id(1)/))*diagHCurrent(i2)%propcurrent
          scalarcontribution(2) = ScalarFFPrefactor((/ -diagHCurrent(i1)%id(2), diagHCurrent(i1)%id(2)/))*diagHCurrent(i2)%propcurrent
@@ -2193,6 +2194,9 @@ function Hf_fWfpfp(diagVCurrent, useRootPropagator, idHChoice)
    endif
 
    Hf_fWfpfp = czero
+   if(.not.do1HVertex) then
+      return
+   endif
    curnull(:)=czero
 
    ! Calculate total "q"
@@ -2243,12 +2247,13 @@ function Hf_fWfpfp(diagVCurrent, useRootPropagator, idHChoice)
 end function Hf_fWfpfp
 
 ! (A/Z)ff,f->fA/Zf'f'
-function f_NV_fp(diagVCurrent, diagACurrent, diagHCurrent)
+function f_NV_fp(diagVCurrent, diagACurrent, diagHCurrent, usebsi)
    implicit none
    integer, parameter :: N=4,maxbit=2**(N-1)-1,maxpaircomb=3**(N-2)-1
    type(VACurrent),intent(in) :: diagVCurrent(1:N)
    type(VACurrent),intent(in) :: diagACurrent(1:N)
    type(ScalarCurrent),intent(in) :: diagHCurrent(1:N)
+   integer, optional :: usebsi
    type(VACurrent) :: activeCurrent(1:N)
    complex(dp) :: f_NV_fp, restmp
    integer :: rootPair(1:3,1:N-2),rp(1:N-2)
@@ -2261,8 +2266,16 @@ function f_NV_fp(diagVCurrent, diagACurrent, diagHCurrent)
    logical :: mtc ! These are input to get the group of permutations
    logical :: even ! These are input to get the group of permutations
    logical :: isValid, doSkip, doSkipRoot
+   integer :: bsicode
+
    if(N.lt.3) then
       return
+   endif
+
+   if( present(usebsi) ) then
+      bsicode=usebsi
+   else
+      bsicode=kbsi
    endif
 
    f_NV_fp = czero
@@ -2330,7 +2343,11 @@ function f_NV_fp(diagVCurrent, diagACurrent, diagHCurrent)
 
                ! Find the ids of fermion propagators
                idRoot(iV)=activeCurrent(iV)%idVertex
-               gammaDottingArray(:,1+2*(iV-2))=activeCurrent(iV)%propcurrent(:) ! This does not change as long as Z/A/W combination is fixed.
+               if(bsicode.ne.ksig) then
+                  gammaDottingArray(:,1+2*(iV-2))=activeCurrent(iV)%propcurrent(:) ! This does not change as long as Z/A/W combination is fixed.
+               else
+                  gammaDottingArray(:,1+2*(iV-2))=czero                            ! This does not change as long as Z/A/W combination is fixed.
+               endif
                if(iV.lt.N) then
                   if(idRoot(iV).eq.Wp_ .or. idRoot(iV).eq.Wm_) then
                      if(iV.eq.2) then
@@ -2377,19 +2394,19 @@ function f_NV_fp(diagVCurrent, diagACurrent, diagHCurrent)
                do iV=2,N
                   if(iV.eq.2) then
                      gammaDottingArray_inst(:,1+2*(iV-2)) = gammaDottingArray_inst(:,1+2*(iV-2))*CurrentPrefactor( (/ activeCurrent(1)%id(1), rootPair(rp(iV-1),iV-1) /), activeCurrent(1)%hel, useA=jarr(iV) )
-                     if(activeCurrent(iV)%idVertex.eq.Z0_ .and. diagHCurrent(order(iV))%idVertex.ne.Not_a_particle_ .and. do1HVertex) then
+                     if(activeCurrent(iV)%idVertex.eq.Z0_ .and. diagHCurrent(order(iV))%idVertex.ne.Not_a_particle_ .and. do1HVertex .and. bsicode.ne.kbkg) then
                         gammaMassArray(1+2*(iV-2)) = ScalarFFPrefactor( (/ activeCurrent(1)%id(1), rootPair(rp(iV-1),iV-1) /) )*diagHCurrent(order(iV))%propcurrent
                         gammaFiveArray(1+2*(iV-2)) = PseudoScalarFFPrefactor( (/ activeCurrent(1)%id(1), rootPair(rp(iV-1),iV-1) /) )*diagHCurrent(order(iV))%propcurrent
                      endif
                   else if(iV.eq.N) then
                      gammaDottingArray_inst(:,1+2*(iV-2)) = gammaDottingArray_inst(:,1+2*(iV-2))*CurrentPrefactor( (/ -rootPair(rp(iV-2),iV-2), activeCurrent(1)%id(2) /), activeCurrent(1)%hel, useA=jarr(iV) )
-                     if(activeCurrent(iV)%idVertex.eq.Z0_ .and. diagHCurrent(order(iV))%idVertex.ne.Not_a_particle_ .and. do1HVertex) then
+                     if(activeCurrent(iV)%idVertex.eq.Z0_ .and. diagHCurrent(order(iV))%idVertex.ne.Not_a_particle_ .and. do1HVertex .and. bsicode.ne.kbkg) then
                         gammaMassArray(1+2*(iV-2)) = ScalarFFPrefactor( (/ -rootPair(rp(iV-2),iV-2), activeCurrent(1)%id(2) /) )*diagHCurrent(order(iV))%propcurrent
                         gammaFiveArray(1+2*(iV-2)) = PseudoScalarFFPrefactor( (/ -rootPair(rp(iV-2),iV-2), activeCurrent(1)%id(2) /) )*diagHCurrent(order(iV))%propcurrent
                      endif
                   else
                      gammaDottingArray_inst(:,1+2*(iV-2)) = gammaDottingArray_inst(:,1+2*(iV-2))*CurrentPrefactor( (/ -rootPair(rp(iV-2),iV-2), rootPair(rp(iV-1),iV-1) /), activeCurrent(1)%hel, useA=jarr(iV) )
-                     if(activeCurrent(iV)%idVertex.eq.Z0_ .and. diagHCurrent(order(iV))%idVertex.ne.Not_a_particle_ .and. do1HVertex) then
+                     if(activeCurrent(iV)%idVertex.eq.Z0_ .and. diagHCurrent(order(iV))%idVertex.ne.Not_a_particle_ .and. do1HVertex .and. bsicode.ne.kbkg) then
                         gammaMassArray(1+2*(iV-2)) = ScalarFFPrefactor( (/ -rootPair(rp(iV-2),iV-2), rootPair(rp(iV-1),iV-1) /) )*diagHCurrent(order(iV))%propcurrent
                         gammaFiveArray(1+2*(iV-2)) = PseudoScalarFFPrefactor( (/ -rootPair(rp(iV-2),iV-2), rootPair(rp(iV-1),iV-1) /) )*diagHCurrent(order(iV))%propcurrent
                      endif
@@ -2419,6 +2436,9 @@ function QuarticHVertex(p,sccurrent,idV)
    complex(dp) :: QuarticHVertex
 
    QuarticHVertex = czero
+   if(.not.do4HVertex) then
+      return
+   endif
    order(:)=0
    order(:)=Id_Order(4,idV,(/ Hig_,Hig_,Hig_,Hig_ /))
    if( order(1).eq.0 .or. order(2).eq.0 .or. order(3).eq.0 .or. order(4).eq.0 ) then
@@ -2440,6 +2460,9 @@ function TripleHVertex(p,sccurrent,idV)
    complex(dp) :: TripleHVertex
 
    TripleHVertex = czero
+   if(.not.do3HVertex) then
+      return
+   endif
    order(:)=0
    order(:)=Id_Order(3,idV,(/ Hig_,Hig_,Hig_ /))
    if( order(1).eq.0 .or. order(2).eq.0 .or. order(3).eq.0 ) then
@@ -2462,6 +2485,9 @@ function DoubleVHVertex(p,sccurrent,current,idV,outType)
    complex(dp) :: DoubleVHVertex
 
    DoubleVHVertex = czero
+   if(.not.do2HVertex) then
+      return
+   endif
    if( (outType(1).eq.Wp_ .and. outType(2).eq.Wm_) .or. (outType(2).eq.Wp_ .and. outType(1).eq.Wm_) ) then
       order(:)=Id_Order(4,idV,(/ Hig_,Hig_,Wp_,Wm_ /))
       M_V=M_W
@@ -2496,6 +2522,9 @@ function VVHVertex(p,current,idV,outType)
    real(dp) :: q_q,q3_q3,q4_q4
 
    VVHVertex = czero
+   if(.not.do1HVertex) then
+      return
+   endif
    aa(:)=czero
    if( (outType(1).eq.Wp_ .and. outType(2).eq.Wm_) .or. (outType(2).eq.Wp_ .and. outType(1).eq.Wm_) ) then
       order(:)=Id_Order(3,idV,(/ Hig_,Wp_,Wm_ /))
@@ -2573,8 +2602,7 @@ end function VVHVertex
 
 ! Subroutines to combine the amplitudes
 
-! Signal VV--HH + V--(H)V--VH
-! Signal VV--V--VH (W+W-ZZH/W+ZWW-H/W-ZWW+H)
+! Signal consists of VV--HH + V--(H)V--VH, VV--V--VH (W+W-ZZH/W+ZWW-H/W-ZWW+H), (VV/HH)--H--(VV/HH), and HHHH
 
 ! Signal (VV/HH)--H--(VV/HH), HHHH
 subroutine amp_VVHVV(diag)
@@ -2693,7 +2721,11 @@ subroutine amp_VVHVV(diag)
          cBack(:,iV+1)=currentV(:,order(lineorder(iV)))
       enddo
 
-      ime_tmp(1)=VVHVertex(qBack,cBack,idBack,outTypeBack)*ScalarPropagator(Hig_,qH(:))
+      if(do1HVertex) then
+         ime_tmp(1)=VVHVertex(qBack,cBack,idBack,outTypeBack)*ScalarPropagator(Hig_,qH(:))
+      else
+         ime_tmp(1)=czero
+      endif
       ime_tmp(2)=czero
 
       nzgscomb = 2**(2-nAonshells)
@@ -2720,7 +2752,9 @@ subroutine amp_VVHVV(diag)
             endif
          enddo
 
-         ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront) ! H->V3V4
+         if(do1HVertex) then
+            ime_tmp(2) = ime_tmp(2) + VVHVertex(qFront,cFront,idFront,outTypeFront) ! H->V3V4
+         endif
          if( & ! H->H3H4->ffb f'fb'
             outTypeFront(1).eq.Z0_ .and. outTypeFront(2).eq.Z0_ .and. &
             idH(order(lineorder(3))).ne.Not_a_particle_ .and. idH(order(lineorder(4))).ne.Not_a_particle_ &
@@ -2861,7 +2895,7 @@ subroutine amp_VVHVV(diag)
    return
 end subroutine amp_VVHVV
 
-! Quartic and double-triple EWK vertex diagrams
+! Quartic, triple-triple, and triple-HVV vertices EWK vertex diagrams, signal or background
 subroutine amp_WWZA(diag)
    implicit none
    class(Single4VDiagram) :: diag
@@ -3035,6 +3069,10 @@ subroutine amp_WWWW(diag)
    complex(dp) :: ime,ime_WW_Z_WW,ime_WW_A_WW
    integer :: outType(1:2),order(1:4),h,mu,ic
 
+   if(.not.doBkg) then
+      return
+   endif
+
    qZA(:,:) = 0_dp
    cZA(:,:) = czero
    ime = czero
@@ -3113,7 +3151,7 @@ subroutine amp_WWWW(diag)
    return
 end subroutine amp_WWWW
 
-! Triple EWK vertex diagram with fermions in t channel (V->4f)
+! Triple EWK vertex and HVV diagrams with fermions in t channel (V->4f), signal or background
 subroutine amp_VV_VtVp(diag)
    implicit none
    class(Single4VDiagram) :: diag
@@ -3122,6 +3160,7 @@ subroutine amp_VV_VtVp(diag)
    complex(dp) :: currentV(1:4,1:4),currentA(1:4,1:4)
    integer :: ic,iz,nAonshells,order(1:4),lineorder(1:4),iperm,nzgscomb,izgscomb,idzgs(1:2),nLoose
    complex(dp) :: composite(1:4,1:2),nullcur(1:4),curzgs(1:4,1:3),scalarcomposite,ime
+   integer :: ibsi
 
    ime=czero
    nullcur(:)=czero
@@ -3180,15 +3219,16 @@ subroutine amp_VV_VtVp(diag)
 
          do ic=1,3,2
             iz=ic+1
+
             if(fullH(order(lineorder(4-ic)))%idVertex.eq.Not_a_particle_ .and. fullH(order(lineorder(6-iz)))%idVertex.eq.Not_a_particle_) then
                cycle
             endif
 
             qtV(:) = -qV(:,order(lineorder(ic)))-qV(:,order(lineorder(iz)))
-            scalarcomposite = Hf_fZAHfpfp( &
+            scalarcomposite = Hf_fZAHfpfp( & ! No need for bsi index since what follows always uses a vertex with a Higgs involved
                                           (/ fullV(order(lineorder(4-ic))),fullV(order(lineorder(6-iz))) /), &
                                           (/ fullA(order(lineorder(4-ic))),fullA(order(lineorder(6-iz))) /), &
-                                          (/ fullH(order(lineorder(4-ic))),fullH(order(lineorder(6-iz))) /)  &
+                                          (/ fullH(order(lineorder(4-ic))),fullH(order(lineorder(6-iz))) /) &
                                          ) ! H at the main vertex
             ! Do (Z/A)(Z/A)H->ff(H/Z/A)
             nzgscomb=2
@@ -3200,6 +3240,9 @@ subroutine amp_VV_VtVp(diag)
             endif
             nzgscomb=2**nzgscomb
             do izgscomb=0,nzgscomb-1
+               if(izgscomb.gt.0 .and. .not.includeGammastar) then
+                  exit
+               endif
                curzgs(:,1)=nullcur(:)
                if(btest(izgscomb,0)) then
                   idzgs(1)=Pho_
@@ -3251,11 +3294,11 @@ subroutine amp_VV_VtVp(diag)
    else
       order(:)=Id_Order(4,idSort,(/ Wp_,Wm_,Z0_,Pho_ /)) ! Z0_ is dummy here, just to ensure identical particles are present.
    endif
-   if(order(1).ne.0 .and. order(2).ne.0 .and. order(3).ne.0 .and. order(4).ne.0 .and. nLoose.lt.2) then
-      ! WWZ/A.2fZ2f
+   if(order(1).ne.0 .and. order(2).ne.0 .and. order(3).ne.0 .and. order(4).ne.0 .and. nLoose.lt.(2-nAonshells)) then
+      ! WWZ/A/H.2fZ2f
       qtV(:) = -qV(:,order(1))-qV(:,order(2))
 
-      ! W(ic)Z(iz)W.ffpWffp
+      ! W(ic)Z(iz)W.ffpWffp + W(ic)H(iz)W.ffpWffp
       do ic=1,2
          do iz=3,4
             if(nAonshells.eq.1 .and. iz.eq.3) then ! Avoid passing on-shell photon into the Wf_fWfpfp
@@ -3263,57 +3306,131 @@ subroutine amp_VV_VtVp(diag)
             endif
             qtV(:) = -qV(:,order(ic))-qV(:,order(iz))
             composite(:,1) = Wf_fWfpfp( (/ fullV(order(7-iz)),fullV(order(3-ic)) /) )
-            ime = ime + TripleEWKVertex( (/ qtV(:), qV(:,order(ic)), qV(:,order(iz)) /), (/ composite(:,1), currentV(:,order(ic)), currentV(:,order(iz)) /), (/ idSort(order(3-ic)), idSort(order(ic)), idSort(order(iz)) /) )
+            if(doBkg) then
+               ime = ime + TripleEWKVertex( (/ qtV(:), qV(:,order(ic)), qV(:,order(iz)) /), (/ composite(:,1), currentV(:,order(ic)), currentV(:,order(iz)) /), (/ idSort(order(3-ic)), idSort(order(ic)), idSort(order(iz)) /) )
+            endif
+            if(do1HVertex) then
+               ime = ime + VVHVertex( &
+                                       (/ cmplx(qtV(:),kind=dp), cmplx(qV(:,order(ic)),kind=dp), cmplx(qV(:,order(iz)),kind=dp) /), &
+                                       (/ composite(:,1), currentV(:,order(ic)), currentV(:,order(iz)) /), &
+                                       (/ idSort(order(3-ic)), idSort(order(ic)), fullH(order(iz))%idVertex /), &
+                                       (/ idSort(order(3-ic)), idSort(order(ic)) /) &
+                                    )
+            endif
          enddo
       enddo
 
       if(nLoose.eq.0) then
+         if(.not.doBkg) then
+            ibsi=ksig ! ZAf_fZAHfpfp has its separate protection against .not.do1HVertex, but this setting would be the only one to protect against a bkg. diagram.
+         else if(.not.do1HVertex) then
+            ibsi=kbkg ! Not necessary, but anyway...
+         else
+            ibsi=kbsi
+         endif
          composite(:,1) = ZAf_fZAHfpfp( &
-                                       (/ fullV(order(3)),fullV(order(4)) /), &
-                                       (/ fullA(order(3)),fullA(order(4)) /), &
-                                       (/ fullH(order(3)),fullH(order(4)) /)  &
+                                          (/ fullV(order(3)),fullV(order(4)) /), &
+                                          (/ fullA(order(3)),fullA(order(4)) /), &
+                                          (/ fullH(order(3)),fullH(order(4)) /), &
+                                          usebsi=ibsi                            &
                                        ) ! Z at the main vertex
          composite(:,2) = ZAf_fZAHfpfp( &
-                                       (/ fullV(order(3)),fullV(order(4)) /), &
-                                       (/ fullA(order(3)),fullA(order(4)) /), &
-                                       (/ fullH(order(3)),fullH(order(4)) /), &
-                                       useAcoupl=.true. ) ! A at the main vertex
+                                          (/ fullV(order(3)),fullV(order(4)) /), &
+                                          (/ fullA(order(3)),fullA(order(4)) /), &
+                                          (/ fullH(order(3)),fullH(order(4)) /), &
+                                          useAcoupl=.true.,                      &
+                                          usebsi=ibsi                            &
+                                       ) ! A at the main vertex
          ime = ime + &
                TripleEWKVertex( (/ qtV(:), qV(:,order(1)), qV(:,order(2)) /), (/ composite(:,1), currentV(:,order(1)), currentV(:,order(2)) /), (/ Z0_ , idSort(order(1)), idSort(order(2)) /) ) &
              + TripleEWKVertex( (/ qtV(:), qV(:,order(1)), qV(:,order(2)) /), (/ composite(:,2), currentV(:,order(1)), currentV(:,order(2)) /), (/ Pho_, idSort(order(1)), idSort(order(2)) /) )
 
          if(do1HVertex) then
+            ! WWH.ffp(Z/A/H)ffp
             scalarcomposite = Hf_fZAHfpfp( &
                                        (/ fullV(order(3)),fullV(order(4)) /), &
                                        (/ fullA(order(3)),fullA(order(4)) /), &
                                        (/ fullH(order(3)),fullH(order(4)) /)  &
                                        ) ! H at the main vertex
-            ime = ime + &
-                        scalarcomposite*VVHVertex( &
+            ime = ime + scalarcomposite*VVHVertex( &
                                                    (/ cmplx(qtV(:),kind=dp), cmplx(qV(:,order(1)),kind=dp), cmplx(qV(:,order(2)),kind=dp) /), &
                                                    (/ nullcur(:), currentV(:,order(1)), currentV(:,order(2)) /), &
                                                    (/ Hig_, idSort(order(1)), idSort(order(2)) /), &
                                                    (/ idSort(order(1)), idSort(order(2)) /) &
                                                  )
+            ! (Z/A)(Z/A)H.ffpWffp
+            scalarcomposite = Hf_fWfpfp( (/ fullV(order(1)),fullV(order(2)) /) ) ! H at the main vertex
+            nzgscomb=2**(2-nAonshells)
+            do izgscomb=0,nzgscomb-1
+               if(izgscomb.gt.0 .and. .not.includeGammastar) then
+                  exit
+               endif
+               curzgs(:,1)=nullcur(:)
+               if(btest(izgscomb,0)) then
+                  idzgs(1)=Pho_
+               else
+                  idzgs(1)=idSort(order(3)) ! Pass idSort on purpose so that id=(Z/A,A) are also supported.
+               endif
+               if(btest(izgscomb,1)) then
+                  idzgs(2)=Pho_
+               else
+                  idzgs(2)=idSort(order(4)) ! Pass idSort on purpose so that id=(Z/A,A) are also supported.
+               endif
+               if(idzgs(1).eq.Pho_) then
+                  curzgs(:,2)=currentA(:,order(3))
+               else
+                  curzgs(:,2)=currentV(:,order(3))
+               endif
+               if(idzgs(2).eq.Pho_) then
+                  curzgs(:,3)=currentA(:,order(4))
+               else
+                  curzgs(:,3)=currentV(:,order(4))
+               endif
+               ime = ime + scalarcomposite * VVHVertex( &
+                                                         (/ cmplx(qtV(:),kind=dp), cmplx(qV(:,order(3)),kind=dp), cmplx(qV(:,order(4)),kind=dp) /), &
+                                                         curzgs, &
+                                                         (/ Hig_, idzgs(1:2) /), &
+                                                         idzgs &
+                                                      )
+            enddo
+            ! HHH.ffpWffp
+            if(do3HVertex .and. idSort(order(3)).eq.Z0_ .and. idSort(order(4)).eq.Z0_) then
+               ime = ime + TripleHVertex( &
+                                          (/ cmplx(qtV(:),kind=dp), cmplx(qV(:,order(3)),kind=dp), cmplx(qV(:,order(4)),kind=dp) /), &
+                                          (/ scalarcomposite, fullH(order(3))%propcurrent, fullH(order(4))%propcurrent /), &
+                                          (/ Hig_, fullH(order(3))%idVertex, fullH(order(4))%idVertex /) &
+                                        )
+            endif
+
          endif
       endif
    endif
 
    order(:)=0
    if(nAonshells.eq.0) then
-      order(:)=Id_Order(4,idSort,(/ Wp_,Wm_,Wp_,Wm_ /)) ! Z0_ is dummy here, just to ensure identical particles are present.
+      order(:)=Id_Order(4,idSort,(/ Wp_,Wm_,Wp_,Wm_ /)) ! Some of W+ or W- here could actually be Zs observed as Ws!
    endif
    if(order(1).ne.0 .and. order(2).ne.0 .and. order(3).ne.0 .and. order(4).ne.0) then
-      ! W+(ic)W-(iz)Z->W+(4-ic)W-(6-iz)
+      ! W(ic)W(iz)(Z/A).ffp(~W(4-ic))W(6-iz)ffp + W(ic)W(iz)H.ffp(~W(4-ic))W(6-iz)ffp
       do ic=1,3,2
          do iz=2,4,2
             qtV(:) = -qV(:,order(ic))-qV(:,order(iz))
-            composite(:,1) = ZAf_fWfpfp( (/ fullV(order(4-ic)),fullV(order(6-iz)) /) ) ! Z at the main vertex
-            composite(:,2) = ZAf_fWfpfp( (/ fullV(order(4-ic)),fullV(order(6-iz)) /), useAcoupl=.true. ) ! A at the main vertex
-
-            ime = ime + &
-                  TripleEWKVertex( (/ qtV(:), qV(:,order(ic)), qV(:,order(iz)) /), (/ composite(:,1), currentV(:,order(ic)), currentV(:,order(iz)) /), (/ Z0_ , idSort(order(ic)), idSort(order(iz)) /) ) &
-                + TripleEWKVertex( (/ qtV(:), qV(:,order(ic)), qV(:,order(iz)) /), (/ composite(:,2), currentV(:,order(ic)), currentV(:,order(iz)) /), (/ Pho_, idSort(order(ic)), idSort(order(iz)) /) )
+            if(doBkg) then
+               composite(:,1) = ZAf_fWfpfp( (/ fullV(order(4-ic)),fullV(order(6-iz)) /) ) ! Z at the main vertex
+               composite(:,2) = ZAf_fWfpfp( (/ fullV(order(4-ic)),fullV(order(6-iz)) /), useAcoupl=.true. ) ! A at the main vertex
+               ime = ime &
+                         + TripleEWKVertex( (/ qtV(:), qV(:,order(ic)), qV(:,order(iz)) /), (/ composite(:,1), currentV(:,order(ic)), currentV(:,order(iz)) /), (/ Z0_ , idSort(order(ic)), idSort(order(iz)) /) ) &
+                         + TripleEWKVertex( (/ qtV(:), qV(:,order(ic)), qV(:,order(iz)) /), (/ composite(:,2), currentV(:,order(ic)), currentV(:,order(iz)) /), (/ Pho_, idSort(order(ic)), idSort(order(iz)) /) )
+            endif
+            if(do1HVertex) then
+               scalarcomposite = Hf_fWfpfp( (/ fullV(order(4-ic)),fullV(order(6-iz)) /) ) ! H at the main vertex
+               ime = ime + scalarcomposite*VVHVertex( &
+                                                      (/ cmplx(qtV(:),kind=dp), cmplx(qV(:,order(ic)),kind=dp), cmplx(qV(:,order(iz)),kind=dp) /), &
+                                                      (/ nullcur(:), currentV(:,order(ic)), currentV(:,order(iz)) /), &
+                                                      (/ Hig_, idSort(order(ic)), idSort(order(iz)) /), &
+                                                      (/ idSort(order(ic)), idSort(order(iz)) /) &
+                                                    )
+            endif
          enddo
       enddo
    endif
@@ -3322,7 +3439,7 @@ subroutine amp_VV_VtVp(diag)
    return
 end subroutine amp_VV_VtVp
 
-! Zs or Ws in the t-channel
+! Zs, As or Ws in the t-channel
 subroutine amp_tVVV(diag)
    use ModMisc
    implicit none
@@ -3330,7 +3447,8 @@ subroutine amp_tVVV(diag)
    integer :: idV(1:4),idA(1:4),idSort(1:4),idSort_loose(1:4)
    real(dp) :: qV(1:4,1:4),qtchannel(1:4)
    integer :: ic,iperm,nLoose,nAonshells,order(1:4),lineorder(1:4)
-   complex(dp) :: composite(1:4,1:4),scalarcomposite(1:2),ime
+   complex(dp) :: composite(1:4,1:8),scalarcomposite(1:2),ime
+   integer :: ibsi
 
    ime=czero
    nAonshells=0
@@ -3373,11 +3491,19 @@ subroutine amp_tVVV(diag)
       order(:)=Id_Order(4,idSort,(/ Z0_,Pho_,Pho_,Pho_ /)) ! Z0_ ensures identical fermions are present.
       if(order(1).ne.0 .and. order(2).ne.0 .and. order(3).ne.0 .and. order(4).ne.0 .and. nLoose.eq.0) then ! nLoose=0 is to ensure that flavor violation does not ever happen at the base current
          ! Add the 3V.base current diagrams
+         if(.not.doBkg) then
+            ibsi=ksig
+         else if(.not.do1HVertex) then
+            ibsi=kbkg ! Not necessary, but anyway...
+         else
+            ibsi=kbsi
+         endif
          ime = ime + f_NV_fp( &
                               (/ fullV(order(1)),fullV(order(2)),fullV(order(3)),fullV(order(4)) /), &
                               (/ fullA(order(1)),fullA(order(2)),fullA(order(3)),fullA(order(4)) /), &
-                              (/ fullH(order(1)),fullH(order(2)),fullH(order(3)),fullH(order(4)) /)  &
-                              )
+                              (/ fullH(order(1)),fullH(order(2)),fullH(order(3)),fullH(order(4)) /), &
+                              usebsi=ibsi                                                            &
+                            )
       endif
    ! End Case 0 Z.A+A+A
    else ! From here on, disallow 3A states
@@ -3403,35 +3529,69 @@ subroutine amp_tVVV(diag)
             endif
 
             qtchannel(:) = -qV(:,order(lineorder(1)))-qV(:,lineorder(2))
+            composite(:,:)=czero
             scalarcomposite(:)=czero
             do ic=1,2
+               ! NOTE: composite(:,1:4) is always calculated as BSI if do1HVertex, and as Bkg if !do1HVertex.
+               !       composite(:,5:8) is always calculated as Bkg.
+               !       Therefore, (1.2+3.4)-(5.6+7.8) corresponds to (do1HVertex.Bkg)+(Bkg.do1HVertex)+(do1HVertex.do1HVertex).
                composite(:,ic)   = ZAf_fZAHfpfp( &
                                                 (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), &
                                                 (/ fullA(order(lineorder(2*ic-1))),fullA(order(lineorder(2*ic))) /), &
                                                 (/ fullH(order(lineorder(2*ic-1))),fullH(order(lineorder(2*ic))) /), &
-                                                useRootPropagator=(ic.eq.1) )                   ! Z at the main vertex
+                                                useRootPropagator=(ic.eq.1)                                          &
+                                               )                                                ! Z at the main vertex
                composite(:,ic+2) = ZAf_fZAHfpfp( &
                                                 (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), &
                                                 (/ fullA(order(lineorder(2*ic-1))),fullA(order(lineorder(2*ic))) /), &
                                                 (/ fullH(order(lineorder(2*ic-1))),fullH(order(lineorder(2*ic))) /), &
-                                                useAcoupl=.true., useRootPropagator=(ic.eq.1) ) ! A at the main vertex
+                                                useAcoupl=.true., useRootPropagator=(ic.eq.1)                        &
+                                               )                                                ! A at the main vertex
+               if(.not.doBkg) then ! Subtract the bkg.bkg contributions
+                  composite(:,ic+4)   = ZAf_fZAHfpfp( &
+                                                   (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), &
+                                                   (/ fullA(order(lineorder(2*ic-1))),fullA(order(lineorder(2*ic))) /), &
+                                                   (/ fullH(order(lineorder(2*ic-1))),fullH(order(lineorder(2*ic))) /), &
+                                                   useRootPropagator=(ic.eq.1),                                         &
+                                                   usebsi=kbkg                                                          &
+                                                  )                                                ! Z at the main vertex
+                  composite(:,ic+6) = ZAf_fZAHfpfp( &
+                                                   (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), &
+                                                   (/ fullA(order(lineorder(2*ic-1))),fullA(order(lineorder(2*ic))) /), &
+                                                   (/ fullH(order(lineorder(2*ic-1))),fullH(order(lineorder(2*ic))) /), &
+                                                   useAcoupl=.true., useRootPropagator=(ic.eq.1),                       &
+                                                   usebsi=kbkg                                                          &
+                                                  )                                                ! A at the main vertex
+               endif
                if(do1HVertex) then
                   scalarcomposite(ic) = Hf_fZAHfpfp( &
                                                    (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), &
                                                    (/ fullA(order(lineorder(2*ic-1))),fullA(order(lineorder(2*ic))) /), &
                                                    (/ fullH(order(lineorder(2*ic-1))),fullH(order(lineorder(2*ic))) /), &
-                                                   useRootPropagator=(ic.eq.1) )                ! H at the main vertex
+                                                   useRootPropagator=(ic.eq.1)                                          &
+                                                   )                                               ! H at the main vertex
                endif
             enddo
             ime = ime + (composite(:,1).dot.composite(:,2)) + (composite(:,3).dot.composite(:,4)) + scalarcomposite(1)*scalarcomposite(2)
+            if(.not.doBkg) then ! Subtract the bkg.bkg contributions if !doBkg
+               ime = ime - (composite(:,5).dot.composite(:,6)) - (composite(:,7).dot.composite(:,8))
+            endif
          enddo
 
       ! Add the 3V.base current diagrams
+      if(.not.doBkg) then
+         ibsi=ksig
+      else if(.not.do1HVertex) then
+         ibsi=kbkg ! Not necessary, but anyway...
+      else
+         ibsi=kbsi
+      endif
       ime = ime + f_NV_fp( &
                            (/ fullV(order(1)),fullV(order(2)),fullV(order(3)),fullV(order(4)) /), &
                            (/ fullA(order(1)),fullA(order(2)),fullA(order(3)),fullA(order(4)) /), &
-                           (/ fullH(order(1)),fullH(order(2)),fullH(order(3)),fullH(order(4)) /)  &
-                           )
+                           (/ fullH(order(1)),fullH(order(2)),fullH(order(3)),fullH(order(4)) /), &
+                           usebsi=ibsi                                                            &
+                         )
       endif
       ! End Case 1 obs(ZZZZ)
 
@@ -3457,24 +3617,34 @@ subroutine amp_tVVV(diag)
             endif
 
             qtchannel(:) = -qV(:,order(lineorder(1)))-qV(:,lineorder(2))
+            composite(:,:)=czero
             scalarcomposite(:)=czero
             do ic=1,2
                if(iperm.lt.3) then
+                  ! NOTE: composite(:,1:4) is always calculated as BSI if do1HVertex, and as Bkg if !do1HVertex.
+                  !       composite(:,5:8) is always calculated as Bkg.
+                  !       Therefore, (1.2+3.4)-(5.6+7.8) corresponds to (do1HVertex.Bkg)+(Bkg.do1HVertex)+(do1HVertex.do1HVertex).
                   composite(:,ic)  = Wf_fZAHfpfp( &
                                                  (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), &
                                                  (/ fullA(order(lineorder(2*ic-1))),fullA(order(lineorder(2*ic))) /), &
                                                  (/ fullH(order(lineorder(2*ic-1))),fullH(order(lineorder(2*ic))) /), &
-                                                 useRootPropagator=.false. ) ! Z at the branch
+                                                 useRootPropagator=(ic.eq.1)                                          &
+                                                ) ! W at the branch
                   if( .not.(fullV(order(lineorder(2*ic)))%isOnshellBoson .or. fullV(order(lineorder(2*ic-1)))%isOnshellBoson) ) then
-                     composite(:,ic+2) = Wf_fWfpfp( (/ fullV(order(lineorder(2*ic))),fullV(order(lineorder(2*ic-1))) /), useRootPropagator=.false. ) ! Swaps lineorder to pass ~Z first                                ! W at the branch
-                  else
-                     composite(:,ic+2) = czero
+                     composite(:,ic+2) = Wf_fWfpfp( (/ fullV(order(lineorder(2*ic))),fullV(order(lineorder(2*ic-1))) /), useRootPropagator=(ic.eq.1) ) ! Swaps lineorder to pass ~Z first, W at the branch
                   endif
                   composite(:,ic)=composite(:,ic)+composite(:,ic+2) ! Can add bc. the W at the root is the same.
-                  composite(:,ic+2)=czero
-                  if(ic.eq.1) then ! Notice that the function calls above do not compute the same propagator twice. Instead, calculate it here.
-                     composite(:,ic)=VectorPropagator(Wp_,qtchannel,composite(:,ic))
+                  if(.not.doBkg) then ! Subtract the bkg.bkg contributions
+                     composite(:,ic+4)  = Wf_fZAHfpfp( &
+                                                       (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), &
+                                                       (/ fullA(order(lineorder(2*ic-1))),fullA(order(lineorder(2*ic))) /), &
+                                                       (/ fullH(order(lineorder(2*ic-1))),fullH(order(lineorder(2*ic))) /), &
+                                                       useRootPropagator=(ic.eq.1),                                         &
+                                                       usebsi=kbkg                                                          &
+                                                     ) ! W at the branch
+                     composite(:,ic+4)=composite(:,ic+4)+composite(:,ic+2) ! Can add bc. the W at the root is the same.
                   endif
+                  composite(:,ic+2)=czero
                else
                   if(ic.eq.1) then
                      composite(:,ic)   = ZAf_fWfpfp ( (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /) )                   ! Z at the main vertex
@@ -3483,16 +3653,27 @@ subroutine amp_tVVV(diag)
                         scalarcomposite(ic)   = Hf_fWfpfp ( (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /) )             ! H at the main vertex
                      endif
                   else
+                     if(.not.doBkg) then
+                        ibsi=ksig
+                     else if(.not.do1HVertex) then
+                        ibsi=kbkg ! Not necessary, but anyway...
+                     else
+                        ibsi=kbsi
+                     endif
                      composite(:,ic)   = ZAf_fZAHfpfp( &
                                                       (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), &
                                                       (/ fullA(order(lineorder(2*ic-1))),fullA(order(lineorder(2*ic))) /), &
                                                       (/ fullH(order(lineorder(2*ic-1))),fullH(order(lineorder(2*ic))) /), &
-                                                      useRootPropagator=.false. )                   ! Z at the main vertex
+                                                      useRootPropagator=.false.,                                           &
+                                                      usebsi=ibsi                                                          &
+                                                      )                   ! Z at the main vertex
                      composite(:,ic+2) = ZAf_fZAHfpfp( &
                                                       (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), &
                                                       (/ fullA(order(lineorder(2*ic-1))),fullA(order(lineorder(2*ic))) /), &
                                                       (/ fullH(order(lineorder(2*ic-1))),fullH(order(lineorder(2*ic))) /), &
-                                                      useAcoupl=.true., useRootPropagator=.false. ) ! A at the main vertex
+                                                      useAcoupl=.true., useRootPropagator=.false.,                         &
+                                                      usebsi=ibsi                                                          &
+                                                      ) ! A at the main vertex
                      if(do1HVertex) then
                         scalarcomposite(ic)   = Hf_fZAHfpfp( &
                                                          (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), &
@@ -3505,17 +3686,28 @@ subroutine amp_tVVV(diag)
             enddo
             if(iperm.lt.3) then
                ime = ime + (composite(:,1).dot.composite(:,2))
+               if(.not.doBkg) then ! Subtract the bkg.bkg contributions
+                  ime = ime - (composite(:,5).dot.composite(:,6))
+               endif
             else
-               ime = ime + (composite(:,1).dot.composite(:,3)) + (composite(:,2).dot.composite(:,4)) + scalarcomposite(1)*scalarcomposite(2)
+               ime = ime + (composite(:,1).dot.composite(:,2)) + (composite(:,3).dot.composite(:,4)) + scalarcomposite(1)*scalarcomposite(2)
             endif
          enddo
 
          ! Add the 3V.base current diagrams
+         if(.not.doBkg) then
+            ibsi=ksig
+         else if(.not.do1HVertex) then
+            ibsi=kbkg ! Not necessary, but anyway...
+         else
+            ibsi=kbsi
+         endif
          ime = ime + f_NV_fp( &
                               (/ fullV(order(1)),fullV(order(2)),fullV(order(3)),fullV(order(4)) /), &
                               (/ fullA(order(1)),fullA(order(2)),fullA(order(3)),fullA(order(4)) /), &
-                              (/ fullH(order(1)),fullH(order(2)),fullH(order(3)),fullH(order(4)) /)  &
-                              )
+                              (/ fullH(order(1)),fullH(order(2)),fullH(order(3)),fullH(order(4)) /), &
+                              usebsi=ibsi                                                            &
+                            )
       endif
    ! End Case 2 obs(WWZZ)
 
@@ -3530,10 +3722,13 @@ subroutine amp_tVVV(diag)
             endif
 
             qtchannel(:) = -qV(:,order(lineorder(1)))-qV(:,lineorder(2))
+            composite(:,:)=czero
             scalarcomposite(:)=czero
             do ic=1,2
-               composite(:,ic)   = ZAf_fWfpfp( (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), useRootPropagator=(ic.eq.1) )                   ! Z at the main vertex
-               composite(:,ic+2) = ZAf_fWfpfp( (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), useAcoupl=.true., useRootPropagator=(ic.eq.1) ) ! A at the main vertex
+               if(doBkg) then
+                  composite(:,ic)   = ZAf_fWfpfp( (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), useRootPropagator=(ic.eq.1) )                   ! Z at the main vertex
+                  composite(:,ic+2) = ZAf_fWfpfp( (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), useAcoupl=.true., useRootPropagator=(ic.eq.1) ) ! A at the main vertex
+               endif
                if(do1HVertex) then
                   scalarcomposite(ic) = Hf_fWfpfp( &
                                                    (/ fullV(order(lineorder(2*ic-1))),fullV(order(lineorder(2*ic))) /), &
@@ -3544,11 +3739,19 @@ subroutine amp_tVVV(diag)
          enddo
 
          ! Add the 3V.base current diagrams
+         if(.not.doBkg) then
+            ibsi=ksig
+         else if(.not.do1HVertex) then
+            ibsi=kbkg ! Not necessary, but anyway...
+         else
+            ibsi=kbsi
+         endif
          ime = ime + f_NV_fp( &
                               (/ fullV(order(1)),fullV(order(2)),fullV(order(3)),fullV(order(4)) /), &
                               (/ fullA(order(1)),fullA(order(2)),fullA(order(3)),fullA(order(4)) /), &
-                              (/ fullH(order(1)),fullH(order(2)),fullH(order(3)),fullH(order(4)) /)  &
-                              )
+                              (/ fullH(order(1)),fullH(order(2)),fullH(order(3)),fullH(order(4)) /), &
+                              usebsi=ibsi                                                            &
+                            )
       endif
    ! End Case 3 obs(WWWW)
    endif
