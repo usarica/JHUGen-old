@@ -6,6 +6,8 @@ implicit none
 #define fullH diag%HCurrent
 #define fullV diag%VCurrent
 #define fullA diag%ACurrent
+#define VVHOffshell_debug 1
+
 
 private
 
@@ -87,10 +89,12 @@ private
       integer :: hel(1:4)
       real(dp) :: permutation_factor
       complex(dp) :: Amplitude
+      logical :: isValid
 
       contains
          procedure :: init_Single4VDiagram
-         procedure :: computeContributions
+         procedure, nopass :: reset_Single4VDiagram
+         procedure, nopass :: computeContributions
 
          procedure, nopass :: amp_VVHVV ! Signal VV.H.VV
 
@@ -101,16 +105,19 @@ private
    end type
 
    type :: ProcessTree
+      real(dp) :: mesq
       type(Single4VDiagram), dimension(:), allocatable :: Diagrams
+      integer, dimension(:,:), allocatable :: fbperm
       integer :: nCombinations
       contains
-         procedure :: init_Diagrams
-         !procedure :: reset_Diagrams
+         procedure :: init_ProcessTree
+         procedure, nopass :: reset_ProcessTree
+         procedure, nopass :: compute_ProcessTree
    end type
 
 !----- List of  subroutines
    public :: amp_WWZA, amp_WWWW, amp_VV_VtVp, amp_tVVV
-!  public :: EvalAmp_VVHOffshell
+   public :: EvalAmp_VVHOffshell
 
 contains
 
@@ -165,6 +172,7 @@ SUBROUTINE NEXPER(N, A, MTC, EVEN)
    RETURN
 END SUBROUTINE NEXPER
 
+
 subroutine init_ScalarCurrent(cur, p, id, hel, Ub, V)
    implicit none
    class(ScalarCurrent) :: cur
@@ -201,10 +209,10 @@ subroutine init_ScalarCurrent(cur, p, id, hel, Ub, V)
       cur%current = HFFCurrent(cur%id,cur%Ub,cur%V,prefactor_s_out=cur%scprefactor,prefactor_ps_out=cur%pscprefactor)
       cur%propcurrent = cur%current*cur%prop
       if(cur%scprefactor.eq.czero .and. cur%pscprefactor.eq.czero) then
-         call reset_ScalarCurrent(cur)
+         call cur%reset_ScalarCurrent(cur)
       endif
    else
-      call reset_ScalarCurrent(cur)
+      call cur%reset_ScalarCurrent(cur)
    endif
    return
 end subroutine init_ScalarCurrent
@@ -228,6 +236,7 @@ subroutine reset_ScalarCurrent(cur)
 
    return
 end subroutine reset_ScalarCurrent
+
 
 subroutine init_VACurrent(cur, p, id, hel, useA)
    implicit none
@@ -272,10 +281,10 @@ subroutine init_VACurrent(cur, p, id, hel, useA)
       endif
 
       if(cur%idVertex_flavorviolating.eq.Not_a_particle_ .and. cur%prefactor.eq.czero) then ! If it is flavor-violating, prefactor would be 0. Otherwise, it would be 1 for on-shell and something else for off-shell.
-         call reset_VACurrent(cur)
+         call cur%reset_VACurrent(cur)
       endif
    else
-      call reset_VACurrent(cur)
+      call cur%reset_VACurrent(cur)
    endif
    return
 end subroutine init_VACurrent
@@ -300,6 +309,7 @@ subroutine reset_VACurrent(cur)
    return
 end subroutine reset_VACurrent
 
+
 subroutine init_Single4VDiagram(diag, ptmp, idtmp, hel, even)
    implicit none
    class(Single4VDiagram) :: diag
@@ -310,11 +320,14 @@ subroutine init_Single4VDiagram(diag, ptmp, idtmp, hel, even)
    real(dp) :: pin(1:4,1:2)
    integer :: idin(1:2)
    integer :: iV, mu, ipair(1:2),j
-   logical :: useAcoupl
+   logical :: isValid
 
    diag%Amplitude=czero
+   diag%isValid=.true.
 
    do iV=1,4
+      diag%hel(iV) = hel(iV)
+
       ipair(1) = iV*2-1
       ipair(2) = iV*2
       do j=1,2
@@ -324,41 +337,77 @@ subroutine init_Single4VDiagram(diag, ptmp, idtmp, hel, even)
       call diag%VCurrent(iV)%init_VACurrent(pin,idin,hel(iV),.false.)
       call diag%ACurrent(iV)%init_VACurrent(pin,idin,hel(iV),.true.)
       if( & ! Try gamma* first
-         (diag%ACurrent(iV)%idVertex.ne.Not_a_particle_ .or. diag%ACurrent(iV)%idVertex_flavorviolating.ne.Not_a_particle_) .and. &
-         .not.diag%ACurrent(iV)%isOnshellBoson &
+         .not.diag%ACurrent(iV)%isOnshellBoson .and.                                                                        &
+         (diag%ACurrent(iV)%idVertex.ne.Not_a_particle_ .or. diag%ACurrent(iV)%idVertex_flavorviolating.ne.Not_a_particle_) &
          ) then
          call diag%HCurrent(iV)%init_ScalarCurrent(pin,idin,hel(iV),diag%ACurrent(iV)%Ub, diag%ACurrent(iV)%V)
-      else
+      else ! It is possible that diag%VCurrent(iV)%idVertex.ne.Z0_, but diag%HCurrent(iV) would then be initiated to a 0 current. Better to not leave it uninitialized.
          call diag%HCurrent(iV)%init_ScalarCurrent(pin,idin,hel(iV),diag%VCurrent(iV)%Ub, diag%VCurrent(iV)%V)
+      endif
+      if( &
+         fullH(iV)%idVertex.eq.Not_a_particle_ .and.                 &
+         fullV(iV)%idVertex.eq.Not_a_particle_ .and.                 &
+         fullV(iV)%idVertex_flavorviolating.eq.Not_a_particle_ .and. &
+         fullA(iV)%idVertex.eq.Not_a_particle_ .and.                 &
+         fullA(iV)%idVertex_flavorviolating.eq.Not_a_particle_       &
+         ) then
+         diag%isValid=.false.
+         exit
       endif
    enddo
 
-   if (even) then
-      diag%permutation_factor=1d0
+   if(diag%isValid) then
+      if (even) then
+         diag%permutation_factor=1d0
+      else
+         diag%permutation_factor=-1d0
+      endif
+      call diag%computeContributions(diag)
    else
-      diag%permutation_factor=-1d0
+#if VVHOffshell_debug==1
+      print *,"init_Single4VDiagram :: Diagram is not valid; resetting it."
+#endif
+      call diag%reset_Single4VDiagram(diag)
    endif
-
    return
 end subroutine init_Single4VDiagram
+
+subroutine reset_Single4VDiagram(diag)
+   implicit none
+   class(Single4VDiagram) :: diag
+   integer :: iV
+
+   do iV=1,4
+      call fullH(iV)%reset_ScalarCurrent(fullH(iV))
+      call fullA(iV)%reset_VACurrent(fullA(iV))
+      call fullV(iV)%reset_VACurrent(fullV(iV))
+      diag%p(:,:,iV)=0_dp
+      diag%id(:,iV)=Not_a_particle_
+      diag%hel(iV)=0
+   enddo
+   diag%permutation_factor=0_dp
+   diag%Amplitude=czero
+   diag%isValid=.false.
+
+   return
+end subroutine reset_Single4VDiagram
 
 subroutine computeContributions(diag)
    implicit none
    class(Single4VDiagram) :: diag
-   if(.not.doSignal) return
 
-   call amp_VVHVV(diag)
-
-   call amp_WWZA(diag)
-   call amp_WWWW(diag)
-   call amp_VV_VtVp(diag)
-   call amp_tVVV(diag)
+   call diag%amp_VVHVV(diag)
+   call diag%amp_WWZA(diag)
+   call diag%amp_WWWW(diag)
+   call diag%amp_VV_VtVp(diag)
+   call diag%amp_tVVV(diag)
 
    return
 end subroutine
 
 
-subroutine init_Diagrams(tree,MomExt,MY_IDUP,hel,npart)
+! MomExt, MY_IDUP should be in the outgoing-momenta conventions
+subroutine init_ProcessTree(tree,MomExt,MY_IDUP,hel,npart)
    implicit none
    class(ProcessTree) :: tree
    integer, parameter :: nhel = 4
@@ -378,12 +427,14 @@ subroutine init_Diagrams(tree,MomExt,MY_IDUP,hel,npart)
 
    ! Convention for helicity assignment: Assign to f and fb in the order passed, then to the bosons
 
+   tree%mesq = 0_dp
+
    idf(:)=Not_a_particle_
    idfb(:)=Not_a_particle_
    idb(:)=Not_a_particle_
-   pf(:,:)=0d0
-   pfb(:,:)=0d0
-   pb(:,:)=0d0
+   pf(:,:)=0_dp
+   pfb(:,:)=0_dp
+   pb(:,:)=0_dp
    nferm=1
    nfermb=1
    nbos=1
@@ -395,7 +446,11 @@ subroutine init_Diagrams(tree,MomExt,MY_IDUP,hel,npart)
       if(MY_IDUP(ipart).eq.Not_a_particle_) then
          continue
       else if(MY_IDUP(ipart).eq.Pho_) then ! Massless bosons
-         if(nbos.eq.4) return ! This should never happen!
+         if(nbos.eq.4) then ! This should never happen!
+            print *,"init_ProcessTree :: Error: Number of bosons hit 4. Resetting the ProcessTree and aborting init_ProcessTree"
+            call tree%reset_ProcessTree(tree)
+            return
+         endif
          idb(nbos)=MY_IDUP(ipart)
          pb(:,nbos)=MomExt(:,ipart)
          nbos=nbos+1
@@ -422,18 +477,18 @@ subroutine init_Diagrams(tree,MomExt,MY_IDUP,hel,npart)
 50 continue
    call NEXPER(nfermb, fermb_pairing(:), mtc, even)
    combPass=.true.
-   print *,"init_Diagrams :: Doing permutation ("
    do ix=1,nferm
       iy = fermb_pairing(ix)
-      print *,iy
       if(hel(ix).eq.hel(iy)) then
          idV_tmp=CoupledVertex((/idf(ix),idfb(iy)/),hel(ix))
          if(idV_tmp.eq.Not_a_particle_) idV_tmp = CoupledVertex_FlavorViolating((/idf(ix),idfb(iy)/),hel(ix))
          if(idV_tmp.eq.Not_a_particle_) combPass=.false.
       endif
       if(.not.combPass) exit ! No need to evaluate the others. The particular permutation is invalid.
+#if VVHOffshell_debug==1
+      print *,"init_ProcessTree :: Doing permutation (",ncomb,", ",iy,")"
+#endif
    enddo
-   print *,")"
    if(combPass) then
       ncomb = ncomb+1
    endif
@@ -443,11 +498,14 @@ subroutine init_Diagrams(tree,MomExt,MY_IDUP,hel,npart)
       deallocate(fermb_pairing)
       return
    endif
-   allocate(tree%Diagrams(ncomb))
 
-   ic=1 ! Just to check
-   ! Start over, this time to fill
-   do ix=1,nfermb ! Identity
+   tree%nCombinations=ncomb
+   allocate(tree%Diagrams(ncomb))
+   allocate(tree%fbperm(4,ncomb))
+
+   ! Start over, this time to initialize the combinations
+   ic=0 ! Track the combination index
+   do ix=1,nfermb ! First time fill, identity
       fermb_pairing(ix)=ix
    enddo
    mtc = .false. ! Start with this statement
@@ -464,8 +522,11 @@ subroutine init_Diagrams(tree,MomExt,MY_IDUP,hel,npart)
       endif
    enddo
    if(combPass) then
+      ic = ic + 1
+      tree%fbperm(:,ic)=0 ! Positive only for fermion pairs
       do ix=1,nferm
          iy = fermb_pairing(ix)
+         tree%fbperm(ix,ic)=iy
          ptmp(:,2*ix-1)=pf(:,ix)
          ptmp(:,2*ix)=pfb(:,iy)
          idtmp(2*ix-1)=idf(ix)
@@ -478,20 +539,207 @@ subroutine init_Diagrams(tree,MomExt,MY_IDUP,hel,npart)
          idtmp(2*nferm+2*ib)=Not_a_particle_
       enddo
       call tree%Diagrams(ic)%init_Single4VDiagram(ptmp, idtmp, hel, even)
-      ic = ic + 1
    endif
    if(mtc) GOTO 51
 
    deallocate(fermb_pairing) ! No longer needed
 
    if(ncomb .ne. ic) then
-      print *,"getSwapCombinations :: ncomb .ne. ic!"
+      print *,"init_ProcessTree :: ncomb .ne. ic!"
+      call tree%reset_ProcessTree(tree)
+      print *,"init_ProcessTree :: Diagrams are reset."
       stop
    endif
    return
-end subroutine init_Diagrams
+end subroutine init_ProcessTree
+
+subroutine reset_ProcessTree(tree)
+   implicit none
+   class(ProcessTree) :: tree
+
+   tree%mesq=0
+   if(allocated(tree%Diagrams)) then
+      deallocate(tree%Diagrams)
+   endif
+   if(allocated(tree%fbperm)) then
+      deallocate(tree%fbperm)
+   endif
+   tree%nCombinations=0
+
+   return
+end subroutine reset_ProcessTree
+
+subroutine compute_ProcessTree(tree)
+   implicit none
+   class(ProcessTree) :: tree
+   integer :: idiag,jdiag
+
+   do idiag=1,tree%nCombinations
+      do jdiag=idiag,tree%nCombinations
+         call interfereDiagrams(tree,idiag,jdiag)
+      enddo
+   enddo
+
+   return
+end subroutine compute_ProcessTree
+
+subroutine interfereDiagrams(tree,idiag,jdiag)
+   implicit none
+   class(ProcessTree) :: tree
+   integer, intent(in) :: idiag,jdiag
+   ! The following trackUnique_* variables track the unique
+   logical :: isChecked(1:4)
+   integer :: trackUnique_idf(1:4) ! Fermion id
+   integer :: trackUnique_noccurance(1:4) ! Number of occurance of the particular current type
+   integer :: tracker ! Iterator/number of unique currents
+   ! End tracking variables
+   integer :: iV, it1, it2
+   real(dp) :: nquarksfactor
+   real(dp) :: symmetryFactor
+   real(dp) :: metmp
+
+   if(idiag.gt.jdiag) then
+      return
+   endif
+
+   nquarksfactor=1_dp
+   symmetryFactor=1_dp
+
+   isChecked(:)=.false.
+   trackUnique_idf(:)=Not_a_particle_
+   trackUnique_noccurance(:)=0
+   tracker=0
+
+   ! Count classes of swaps and how many leaps to make in each
+   do iV=1,4
+      if(isChecked(iV)) then
+         continue
+      else if(tree%fbperm(iV,idiag).eq.0) then
+         isChecked(iV) = .true.
+         continue
+      else if(tree%fbperm(iV,idiag).gt.0) then
+         isChecked(iV) = .true.
+
+         tracker = tracker+1
+         trackUnique_idf(tracker) = tree%Diagrams(idiag)%id(1,iV)
+         trackUnique_noccurance(tracker) = trackUnique_noccurance(tracker)+1
+
+         it1 = -1
+         it2 = iV
+107      continue
+         call getIndexLocation(4, tree%fbperm(:,idiag), tree%fbperm(it2,jdiag), it1)
+         if(it1.lt.1) then
+            print *,"it1.lt.1. Aborting!"
+            call abort
+         endif
+         if(it1.ne.iV) then
+            it2=it1
+            isChecked(it1) = .true.
+            trackUnique_noccurance(tracker) = trackUnique_noccurance(tracker)+1
+            goto 107
+         endif
+      endif
+   enddo
+
+   do iV=1,4
+      if(trackUnique_idf(iV).eq.Not_a_particle_ .or. trackUnique_noccurance(iV).eq.0) then
+         continue
+      else if(IsAQuark(trackUnique_idf(iV)) .and. trackUnique_noccurance(iV).eq.1) then
+         nquarksfactor = nquarksfactor*9_dp
+      else if(IsAQuark(trackUnique_idf(iV)) .and. trackUnique_noccurance(iV).gt.1) then
+         nquarksfactor = nquarksfactor*3_dp
+         symmetryFactor = real(factorial(trackUnique_noccurance(iV)), kind=dp)
+      else if(.not.IsAQuark(trackUnique_idf(iV)) .and. trackUnique_noccurance(iV).gt.1) then
+         symmetryFactor = real(factorial(trackUnique_noccurance(iV)), kind=dp)
+      endif
+   enddo
+
+   if(idiag.eq.jdiag) then
+      metmp = abs((tree%Diagrams(idiag)%Amplitude)**2)
+   else ! Notice the factor of 2!
+      metmp = two * real(tree%Diagrams(idiag)%Amplitude*conjg(tree%Diagrams(jdiag)%Amplitude),kind=dp)
+   endif
+   metmp = metmp*nquarksfactor/symmetryFactor
+
+   tree%mesq = tree%mesq + metmp
+   return
+end subroutine
 
 
+subroutine getIndexLocation(nArray, checkArray, checkValue, iterator)
+   integer, intent(in) :: nArray
+   integer, intent(in) :: checkArray(1:nArray)
+   integer, intent(in) :: checkValue
+   integer :: iterator
+   integer :: iV
+
+   do iV=1,nArray
+      if(checkArray(iV).eq.checkValue) then
+         iterator = iV
+         return
+      endif
+   enddo
+
+   iterator = -1
+end subroutine
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! Main subroutine: EvalAmp_VVHOffshell
+! MomExt, MY_IDUP should be in the lab conventions. The first two always refer to the incoming particles, so their ids and momenta acquire a (-) sign.
+subroutine EvalAmp_VVHOffshell(MomExt,MY_IDUP,MY_HEL,npart,mesq)
+   integer, parameter :: nhel = 4
+   type(ProcessTree) :: tree
+   integer, intent(in) :: npart
+   real(dp), intent(in) :: MomExt(1:4,1:npart)
+   integer, intent(in) :: MY_IDUP(1:npart)
+   integer, intent(in) :: MY_HEL(1:nhel)
+   real(dp), intent(out) :: mesq
+   real(dp) :: pin(1:4,1:npart)
+   integer :: idin(1:npart)
+   integer :: idiag, jdiag
+
+   if(npart.lt.3) then
+      return
+   endif
+
+   pin(:,1:2) = -MomExt(:,1:2); idin(1:2) = -MY_IDUP(1:2)
+   pin(:,3:npart) = MomExt(:,3:npart); idin(3:npart) = -MY_IDUP(3:npart)
+
+   ! The following directive initiates the process tree and its diagrams.
+   ! init_Single4VDiagrams also calculates the contributions if the 4V diagram is valid.
+   call tree%init_ProcessTree(pin,idin,MY_HEL,npart)
+   ! Back to this subroutine to interfere the diagrams
+   call tree%compute_ProcessTree(tree)
+   ! Assign mesq
+   mesq = tree%mesq
+   ! Clean the process tree allocated variables
+   call tree%reset_ProcessTree(tree)
+
+   ! Done
+   return
+end subroutine EvalAmp_VVHOffshell
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+function factorial(factor)
+   implicit none
+   integer, intent(in) :: factor
+   integer :: factorial
+   integer :: j
+
+   if(factor.lt.0) then
+      factorial=0
+   else
+      factorial=1
+      if(factor.gt.1) then
+         do j=2,factor
+            factorial = factorial*j
+         enddo
+      endif
+   endif
+   return
+end function factorial
 
 ! Use Weyl basis to make Psi=(Psi_R,Psi_L)
 ! satisfying P_R,L=(1+-gamma5)/2
@@ -1616,7 +1864,9 @@ function QuarticEWKVertex(p,idV,outType) ! p(:,1:4): Currents; order: (incoming 
       return
    endif
    if( order(1).eq.0 .or. order(2).eq.0 .or. order(3).eq.0 .or. order(4).eq.0 ) then
+#if VVHOffshell_debug==1
       print *,"QuarticEWKVertex::Target mismatch (ids, order)",idV,order
+#endif
       return
    endif
 
@@ -1660,7 +1910,9 @@ function TripleEWKVertex(p,current,idV,useAcoupl)
    endif
 
    if( order(1).eq.0 .or. order(2).eq.0 .or. order(3).eq.0 ) then
+#if VVHOffshell_debug==1
       print *,"TripleEWKVertex::Target mismatch (ids, order)",idV,order
+#endif
       return
    endif
 
@@ -2442,7 +2694,9 @@ function QuarticHVertex(p,sccurrent,idV)
    order(:)=0
    order(:)=Id_Order(4,idV,(/ Hig_,Hig_,Hig_,Hig_ /))
    if( order(1).eq.0 .or. order(2).eq.0 .or. order(3).eq.0 .or. order(4).eq.0 ) then
-      !print *,"QuarticHVertex::Target mismatch (ids, order)",idV,order
+#if VVHOffshell_debug==1
+      print *,"QuarticHVertex::Target mismatch (ids, order)",idV,order
+#endif
       return
    endif
 
@@ -2466,7 +2720,9 @@ function TripleHVertex(p,sccurrent,idV)
    order(:)=0
    order(:)=Id_Order(3,idV,(/ Hig_,Hig_,Hig_ /))
    if( order(1).eq.0 .or. order(2).eq.0 .or. order(3).eq.0 ) then
-      !print *,"TripleHVertex::Target mismatch (ids, order)",idV,order
+#if VVHOffshell_debug==1
+      print *,"TripleHVertex::Target mismatch (ids, order)",idV,order
+#endif
       return
    endif
 
@@ -2498,7 +2754,9 @@ function DoubleVHVertex(p,sccurrent,current,idV,outType)
       return
    endif
    if( order(1).eq.0 .or. order(2).eq.0 .or. order(3).eq.0 .or. order(4).eq.0 ) then
-      !print *,"DoubleVHVertex::Target mismatch (ids, order)",idV,order
+#if VVHOffshell_debug==1
+      print *,"DoubleVHVertex::Target mismatch (ids, order)",idV,order
+#endif
       return
    endif
 
@@ -2538,7 +2796,9 @@ function VVHVertex(p,current,idV,outType)
       return
    endif
    if( order(1).eq.0 .or. order(2).eq.0 .or. order(3).eq.0 ) then
-      !print *,"VVHVertex::Target mismatch (ids, order)",idV,order
+#if VVHOffshell_debug==1
+      print *,"VVHVertex::Target mismatch (ids, order)",idV,order
+#endif
       return
    endif
 
