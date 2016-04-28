@@ -704,7 +704,7 @@ subroutine EvalAmp_VVHOffshell(MomExt,MY_IDUP,MY_HEL,npart,mesq)
    endif
 
    pin(:,1:2) = -MomExt(:,1:2); idin(1:2) = -MY_IDUP(1:2)
-   pin(:,3:npart) = MomExt(:,3:npart); idin(3:npart) = -MY_IDUP(3:npart)
+   pin(:,3:npart) = MomExt(:,3:npart); idin(3:npart) = MY_IDUP(3:npart)
 
    ! The following directive initiates the process tree and its diagrams.
    ! init_Single4VDiagrams also calculates the contributions if the 4V diagram is valid.
