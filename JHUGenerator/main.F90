@@ -351,6 +351,7 @@ logical :: SetAnomalousHff, Setkappa
     if( SetLastArgument ) M_Reso = M_Reso*GeV
     call ReadCommandLineArgument(arg, "GaReso", success, Ga_Reso, SetLastArgument)
     if( SetLastArgument ) Ga_Reso = Ga_Reso*GeV
+    call ReadCommandLineArgument(arg, "ctauReso", success, HiggsDecayLengthMM)
     call ReadCommandLineArgument(arg, "VegasNc0", success, VegasNc0)
     call ReadCommandLineArgument(arg, "VegasNc1", success, VegasNc1)
     call ReadCommandLineArgument(arg, "VegasNc2", success, VegasNc2)
@@ -2135,13 +2136,15 @@ character(len=160) :: EventLine(0:maxpart)
      enddo
 99   continue
 
-     if( .not.ReadLHEFile .or. m_Reso.lt.2*m_V) then
+     if(.not.ReadLHEFile .or. (m_Reso.lt.2*m_V .and. .not.ReweightDecay)) then
          call ReopenInFile()
          maxInputmHstar = m_Reso
+         minInputmHstar = m_Reso
+         mHstarforphasespace = m_Reso
          return
      endif
 
-     print *, "Finding max mH in the LHE input file..."
+     print *, "Finding range of mHstar in the LHE input file..."
 
 
      InputFmt0 = ""
@@ -2176,6 +2179,7 @@ character(len=160) :: EventLine(0:maxpart)
             if( abs(LHE_IDUP(nline)).eq.25 ) then!   select the Higgs (ID=25, h0) ! Ulascan: Should be safer to have 'if( abs(LHE_IDUP(nline)).eq.abs(convertLHE(Hig_)) )'
                   Mass(nline) = Mass(nline)*GeV            !  convert to units of 100GeV
                   if( Mass(nline).gt.maxInputmHstar ) maxInputmHstar = Mass(nline)
+                  if( Mass(nline).lt.minInputmHstar ) minInputmHstar = Mass(nline)
                   exit
             endif
          enddo
@@ -2196,7 +2200,17 @@ character(len=160) :: EventLine(0:maxpart)
          enddo
      enddo
 98   continue
-     print *, "... and it's ", maxInputmHstar/GeV, " GeV"
+     if(maxinputmHstar.lt.0) then !no events in the file
+         mininputmHstar = m_Reso
+         maxinputmHstar = m_Reso
+     endif
+     print *, "... and it's ", minInputmHstar/GeV, "  -  ", maxInputmHstar/GeV, " GeV"
+
+     if(m_Reso.lt.2*m_V) then
+         mHstarforphasespace = m_Reso
+     else
+         mHstarforphasespace = maxinputmHstar
+     endif
 
      call ReopenInFile()
 
@@ -2310,7 +2324,8 @@ call InitReadLHE(BeginEventLine)
      print *, " finding maximal weight for mZZ=", maxInputmHstar/GeV, " GeV with ",VegasNc0," points"
      VG = zero
      CSmax = zero
-     EHat = maxInputmHstar! fixing Ehat to maxInputmHstar which should determine the max. of the integrand
+     EHat = mHstarforphasespace! for m > 2mV: max mHstar found in the LHE file, which should give the max value of the integrand
+                               ! for m < 2mV: m_Reso
      if( TauDecays.lt.0 ) then
          do tries=1,VegasNc0
              call random_number(yRnd)
@@ -3981,6 +3996,7 @@ character :: arg*(500)
     if( Process.eq.113) write(TheUnit,"(4X,A,F7.2,A,F10.5)") "Resonance: spin=0, mass=",M_Reso*100d0," width=",Ga_Reso*100d0
     if( ReadLHEFile )    write(TheUnit,"(4X,A)") "           (This is ReadLHEFile mode. Resonance mass/width are read from LHE input parameters.)"
     if( ConvertLHEFile ) write(TheUnit,"(4X,A)") "           (This is ConvertLHEFile mode. Resonance mass/width are read from LHE input parameters.)"
+    if( HiggsDecayLengthMM.ne.0d0 ) write(TheUnit,"(4X,A,F10.5,A)") "           ctau=", HiggsDecayLengthMM, " mm"
     if( &
          (.not.ReadLHEFile .and. (Process.le.2 .or. Process.eq.50 .or. Process.eq.60 .or. Process.eq.66 .or. ((TopDecays.eq.1).and.Process.eq.80) .or. (Process.ge.110 .and. Process.le.113))) &
     .or. (ReadLHEFile .and. TauDecays.ne.0) &
@@ -4142,14 +4158,14 @@ character :: arg*(500)
         write(TheUnit,"(4X,A)") "spin-2-VV couplings: "
         write(TheUnit,"(6X,A,L)") "generate_bis=",generate_bis
         write(TheUnit,"(6X,A,L)") "use_dynamic_MG=",use_dynamic_MG
-        write(TheUnit,"(6X,A,2E16.8,A1)") "a1=",a1,"i"
-        write(TheUnit,"(6X,A,2E16.8,A1)") "a2=",a2,"i"
-        write(TheUnit,"(6X,A,2E16.8,A1)") "a3=",a3,"i"
-        write(TheUnit,"(6X,A,2E16.8,A1)") "a4=",a4,"i"
-        write(TheUnit,"(6X,A,2E16.8,A1)") "a5=",a5,"i"
+        write(TheUnit,"(6X,A,2E16.8,A1)") "a1 =",a1,"i"
+        write(TheUnit,"(6X,A,2E16.8,A1)") "a2 =",a2,"i"
+        write(TheUnit,"(6X,A,2E16.8,A1)") "a3 =",a3,"i"
+        write(TheUnit,"(6X,A,2E16.8,A1)") "a4 =",a4,"i"
+        write(TheUnit,"(6X,A,2E16.8,A1)") "a5 =",a5,"i"
         if( generate_bis ) then
             write(TheUnit,"(6X,A,2E16.8,A1)") "b1 =",b1,"i"
-            write(TheUnit,"(6X,A,2E16.8,A1)") "b2= ",b2,"i"
+            write(TheUnit,"(6X,A,2E16.8,A1)") "b2 =",b2,"i"
             write(TheUnit,"(6X,A,2E16.8,A1)") "b3 =",b3,"i"
             write(TheUnit,"(6X,A,2E16.8,A1)") "b4 =",b4,"i"
             write(TheUnit,"(6X,A,2E16.8,A1)") "b5 =",b5,"i"
@@ -4162,8 +4178,8 @@ character :: arg*(500)
             write(TheUnit,"(6X,A,2E16.8,A1)") "c1 =",c1,"i"
             write(TheUnit,"(6X,A,2E16.8,A1)") "c2 =",c2,"i"
             write(TheUnit,"(6X,A,2E16.8,A1)") "c3 =",c3,"i"
-            write(TheUnit,"(6X,A,2E16.8,A1)") "c41 =",c41,"i"
-            write(TheUnit,"(6X,A,2E16.8,A1)") "c42 =",c42,"i"
+            write(TheUnit,"(6X,A,2E16.8,A1)") "c41=",c41,"i"
+            write(TheUnit,"(6X,A,2E16.8,A1)") "c42=",c42,"i"
             write(TheUnit,"(6X,A,2E16.8,A1)") "c5 =",c5,"i"
             write(TheUnit,"(6X,A,2E16.8,A1)") "c6 =",c6,"i"
             write(TheUnit,"(6X,A,2E16.8,A1)") "c7 =",c7,"i"
