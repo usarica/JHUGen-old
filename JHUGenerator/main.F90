@@ -1,6 +1,7 @@
-! If you use this program please cite Phys.Rev. D81 (2010) 075022; arXiv:1001.3396 [hep-ph],
-!                                     Phys.Rev. D86 (2012) 095031; arXiv:1208.4018 [hep-ph],
-!                                 and Phys.Rev. D89 (2014) 035007; arXiv:1309.4819 [hep-ph].
+! If you use this program please cite Phys.Rev. D81 (2010) 075022; arXiv:1001.3396  [hep-ph],
+!                                     Phys.Rev. D86 (2012) 095031; arXiv:1208.4018  [hep-ph],
+!                                     Phys.Rev. D89 (2014) 035007; arXiv:1309.4819  [hep-ph],
+!                                 and                              arXiv:1606.03107 [hep-ph].
 PROGRAM JHUGenerator
 #if compiler==1
 use ifport
@@ -234,6 +235,7 @@ logical :: SetZgammacoupling, Setgammagammacoupling
 logical :: SetAnomalousSpin1qq, Setspin1qqleft, Setspin1qqright, SetAnomalousSpin1ZZ
 logical :: SetAnomalousSpin2gg, SetAnomalousSpin2qq, Setspin2qqleft, Setspin2qqright,SetAnomalousSpin2ZZ
 logical :: SetAnomalousHff, Setkappa
+logical :: SetpTcut, SetdeltaRcut
 
    help = .false.
 
@@ -269,6 +271,7 @@ logical :: SetAnomalousHff, Setkappa
    WidthSchemeIn=-1
    TopDecays=-1
    TauDecays=-1
+   H_DK = .false.
    Process = 0   ! select 0, 1 or 2 to represent the spin of the resonance
    Unweighted =.true.
 
@@ -320,6 +323,9 @@ logical :: SetAnomalousHff, Setkappa
    SetAnomalousHff=.false.
    Setkappa=.false.
 
+   SetpTcut=.false.
+   SetdeltaRcut=.false.
+
    DataFile="./data/output"
 
 
@@ -366,6 +372,7 @@ logical :: SetAnomalousHff, Setkappa
     call ReadCommandLineArgument(arg, "MuRenMultiplier", success, MuRenMultiplier, success2=SetMuRenMultiplier)
     call ReadCommandLineArgument(arg, "TopDK", success, TopDecays)
     call ReadCommandLineArgument(arg, "TauDK", success, TauDecays)
+    call ReadCommandLineArgument(arg, "HbbDK", success, H_DK)
     call ReadCommandLineArgument(arg, "ReweightDecay", success, ReweightDecay)
     call ReadCommandLineArgument(arg, "WidthScheme", success, WidthScheme)
     call ReadCommandLineArgument(arg, "WidthSchemeIn", success, WidthSchemeIn)
@@ -455,6 +462,19 @@ logical :: SetAnomalousHff, Setkappa
     call ReadCommandLineArgument(arg, "cz_q1sq", success, cz_q1sq, success2=SetAnomalousSpin0ZZ)
     call ReadCommandLineArgument(arg, "cz_q2sq", success, cz_q1sq, success2=SetAnomalousSpin0ZZ)
     call ReadCommandLineArgument(arg, "cz_q12sq", success, cz_q1sq, success2=SetAnomalousSpin0ZZ)
+    ! Lambda's for q1,2,12**2 for the Lambda's
+    call ReadCommandLineArgument(arg, "Lambda_z11", success, Lambda_z11, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "Lambda_z21", success, Lambda_z21, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "Lambda_z31", success, Lambda_z31, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "Lambda_z41", success, Lambda_z41, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "Lambda_z12", success, Lambda_z12, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "Lambda_z22", success, Lambda_z22, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "Lambda_z32", success, Lambda_z32, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "Lambda_z42", success, Lambda_z42, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "Lambda_z10", success, Lambda_z10, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "Lambda_z20", success, Lambda_z20, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "Lambda_z30", success, Lambda_z30, success2=SetAnomalousSpin0ZZ)
+    call ReadCommandLineArgument(arg, "Lambda_z40", success, Lambda_z40, success2=SetAnomalousSpin0ZZ)
 
     !spin 0 WW couplings
     call ReadCommandLineArgument(arg, "ghw1", success, ghw1, success2=distinguish_HWWcouplings)
@@ -498,6 +518,19 @@ logical :: SetAnomalousHff, Setkappa
     call ReadCommandLineArgument(arg, "cw_q1sq", success, cw_q1sq, success2=distinguish_HWWcouplings)
     call ReadCommandLineArgument(arg, "cw_q2sq", success, cw_q1sq, success2=distinguish_HWWcouplings)
     call ReadCommandLineArgument(arg, "cw_q12sq", success, cw_q1sq, success2=distinguish_HWWcouplings)
+    ! Lambda's for q1,2,12**2 for the Lambda's
+    call ReadCommandLineArgument(arg, "Lambda_w11", success, Lambda_w11, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "Lambda_w21", success, Lambda_w21, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "Lambda_w31", success, Lambda_w31, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "Lambda_w41", success, Lambda_w41, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "Lambda_w12", success, Lambda_w12, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "Lambda_w22", success, Lambda_w22, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "Lambda_w32", success, Lambda_w32, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "Lambda_w42", success, Lambda_w42, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "Lambda_w10", success, Lambda_w10, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "Lambda_w20", success, Lambda_w20, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "Lambda_w30", success, Lambda_w30, success2=distinguish_HWWcouplings)
+    call ReadCommandLineArgument(arg, "Lambda_w40", success, Lambda_w40, success2=distinguish_HWWcouplings)
 
     !spin 1
     call ReadCommandLineArgument(arg, "zprime_qq_left", success, zprime_qq_left, success2=SetAnomalousSpin1qq, success3=Setspin1qqleft)
@@ -529,9 +562,9 @@ logical :: SetAnomalousHff, Setkappa
     call ReadCommandLineArgument(arg, "kappa_tilde", success, kappa_tilde, success2=SetAnomalousHff)
 
     !cuts
-    call ReadCommandLineArgument(arg, "pTjetcut", success, pTjetcut, SetLastArgument)
+    call ReadCommandLineArgument(arg, "pTjetcut", success, pTjetcut, SetLastArgument, success2=SetpTcut)
     if( SetLastArgument ) pTjetcut = pTjetcut*GeV
-    call ReadCommandLineArgument(arg, "deltaRcut", success, Rjet)
+    call ReadCommandLineArgument(arg, "deltaRcut", success, Rjet, success2=SetdeltaRcut)
     call ReadCommandLineArgument(arg, "mJJcut", success, mJJcut, SetLastArgument)
     if( SetLastArgument ) mJJcut = mJJcut*GeV
     call ReadCommandLineArgument(arg, "VBF_m4l_min", success, m4l_minmax(1), SetLastArgument)
@@ -580,7 +613,7 @@ logical :: SetAnomalousHff, Setkappa
     if( Process.eq.50 ) then
         DecayMode2=DecayMode1
         if( Collider.eq.2 ) call Error("Collider 2 not available for VH")
-        if( (IsAZDecay(DecayMode1).eqv..false.) .and. (Collider.ne.1) ) call Error("WH with Collider 1 only")
+        if( (IsAWDecay(DecayMode1) ) .and. (Collider.ne.1) ) call Error("WH with Collider 1 only")
     endif
 
     if( Process.ge.110 .and. Process.le.113 ) DecayMode2 = DecayMode1
@@ -601,7 +634,7 @@ logical :: SetAnomalousHff, Setkappa
        DecayMode1 = DecayMode1 - DecayMode2
     endif
 
-    if( IsAZDecay(DecayMode1) ) then
+    if( IsAZDecay(DecayMode1) .or. (Process.eq.50.and.IsAPhoton(DecayMode1)) ) then
        M_V = M_Z
        Ga_V= Ga_Z
     elseif( IsAWDecay(DecayMode1) ) then
@@ -655,12 +688,11 @@ logical :: SetAnomalousHff, Setkappa
     endif
 
     !decay mode checks
-    if( IsAZDecay(DecayMode1) .and. IsAZDecay(DecayMode2) ) then
+    if( (IsAZDecay(DecayMode1) .and. IsAZDecay(DecayMode2) .and. Process.le.2) .or. (Process.eq.50 .and. IsAZDecay(DecayMode1)) .or. Process.eq.60 .or. Process.eq.66 ) then
         includeGammaStar = (SetZgammacoupling .or. Setgammagammacoupling)
-    elseif( IsAZDecay(DecayMode1) .and. IsAPhoton(DecayMode2) ) then
+    elseif( (IsAZDecay(DecayMode1) .and. IsAPhoton(DecayMode2) .and. Process.le.2) .or. (Process.eq.50 .and. IsAPhoton(DecayMode1)) ) then
         includeGammaStar = Setgammagammacoupling
     endif
-
 
     if( (DecayMode1.ge.12) .or. (DecayMode2.ge.12) .or. (DecayMode1.lt..0) .or. (DecayMode2.lt.0) ) then
        print *," DecayMode1=",DecayMode1," and DecayMode2=",DecayMode2," are not allowed."
@@ -686,14 +718,43 @@ logical :: SetAnomalousHff, Setkappa
         stop 1
     endif
 
+    if( Process.eq.50 .and. IsAPhoton(DecayMode1) .and. .not.SetZgammacoupling .and. .not.Setgammagammacoupling ) then
+        print *, "To produce gammaH, you need to set one of the HZgamma (ghzgs*) or Hgammagamma(ghgsgs*) couplings."
+        stop 1
+    endif
+
+    !cut checks
+    if(.not.SetpTcut) then
+        if(Process.eq.50) then
+            pTjetcut = 0d0*GeV
+        else
+            pTjetcut=15d0*GeV
+        endif
+    endif
+    if(.not.SetdeltaRcut) then
+        if(Process.eq.50) then
+            Rjet = 0d0
+        else
+            Rjet = 0.3d0
+        endif
+    endif
+    if((Process.eq.60 .or. Process.eq.66) .and. includeGammaStar .and. pTjetcut.le.0d0) then
+       print *, " Process=",Process," with off-shell photons requires a non-zero pT cut instead of photon mass cutoff. Current setting cut ",pTjetcut/GeV," GeV is not allowed."
+       stop 1
+    endif
+    if((Process.eq.61 .or. Process.eq.62) .and. pTjetcut.le.0d0) then
+       print *, " Process=",Process," requires a non-zero pT cut. Current setting cut ",pTjetcut/GeV," GeV is not allowed."
+       stop 1
+    endif
+
     !---------------------------------------!
     !           Set OffShellV1/V2           !
     !---------------------------------------!
-    if( IsAPhoton(DecayMode2) .and. IsAZDecay(DecayMode1) ) then ! require OffXVV=*10 for Z+photon
+    if( IsAPhoton(DecayMode2) .and. IsAZDecay(DecayMode1) ) then
        print *,"Z is off-shell and photon is on-shell in Z+photon production."
        print *,"Randomization of the order of writing of the decay products to the LHE file is disabled."
        RandomizeVVdecays = .false.
-    elseif( IsAPhoton(DecayMode2) .and. IsAPhoton(DecayMode1) ) then ! require OffXVV=*00 for photon+photon
+    elseif( IsAPhoton(DecayMode2) .and. IsAPhoton(DecayMode1) .and. Process.le.2 ) then
        print *,"Both photons are on-shell in photon+photon production."
     endif
     OffShellV1=.not.IsAPhoton(DecayMode1)
@@ -1103,7 +1164,7 @@ include "vegas_common.f"
          NDim = NDim + 1
          NDim = NDim + 1
 
-         VegasIt1_default = 5
+         VegasIt1_default = 15
          VegasNc0_default = 10000000
          VegasNc1_default = 500000
          VegasNc2_default = 10000
@@ -1580,26 +1641,40 @@ if ( (unweighted.eqv..false.) .or. (GenerateEvents.eqv..true.) ) then  !--------
         return
     endif
 
+    outgridfile=trim(DataFile)//'.grid'
+    ingridfile=trim(outgridfile)
 
     ! WARM-UP RUN
-    itmx = VegasIt1
-    ncall= VegasNc1
-    warmup = .true.
-    if( Process.eq.0 .or. Process.eq.1 .or. Process.eq.2 ) call vegas(EvalWeighted,VG_Result,VG_Error,VG_Chi2)
-    if( Process.eq.80 ) call vegas(EvalWeighted_TTBH,VG_Result,VG_Error,VG_Chi2)
-    if( Process.eq.90 ) call vegas(EvalWeighted_BBBH,VG_Result,VG_Error,VG_Chi2)
+    if( .not. ReadCSmax ) then 
+      readin=.false.
+      writeout=.true.
 
-    if( Process.eq.60 ) call vegas(EvalWeighted_HJJ,VG_Result,VG_Error,VG_Chi2)
-    if( Process.eq.66 ) call vegas(EvalWeighted_HJJ_fulldecay,VG_Result,VG_Error,VG_Chi2)
-    if( Process.eq.61 ) call vegas(EvalWeighted_HJJ,VG_Result,VG_Error,VG_Chi2)
+      itmx = VegasIt1
+      ncall= VegasNc1
+      warmup = .true.
+      if( Process.eq.0 .or. Process.eq.1 .or. Process.eq.2 ) call vegas(EvalWeighted,VG_Result,VG_Error,VG_Chi2)
+      if( Process.eq.80 ) call vegas(EvalWeighted_TTBH,VG_Result,VG_Error,VG_Chi2)
+      if( Process.eq.90 ) call vegas(EvalWeighted_BBBH,VG_Result,VG_Error,VG_Chi2)
 
-    if( Process.eq.110) call vegas(EvalWeighted_TH,VG_Result,VG_Error,VG_Chi2)
-    if( Process.eq.111) call vegas(EvalWeighted_TH,VG_Result,VG_Error,VG_Chi2)
+      if( Process.eq.60 ) call vegas(EvalWeighted_HJJ,VG_Result,VG_Error,VG_Chi2)
+      if( Process.eq.66 ) call vegas(EvalWeighted_HJJ_fulldecay,VG_Result,VG_Error,VG_Chi2)
+      if( Process.eq.61 ) call vegas(EvalWeighted_HJJ,VG_Result,VG_Error,VG_Chi2)
 
-    if( Process.eq.112) call vegas(EvalWeighted_TH,VG_Result,VG_Error,VG_Chi2)
-    if( Process.eq.113) call vegas(EvalWeighted_TH,VG_Result,VG_Error,VG_Chi2)
+      if( Process.eq.110) call vegas(EvalWeighted_TH,VG_Result,VG_Error,VG_Chi2)
+      if( Process.eq.111) call vegas(EvalWeighted_TH,VG_Result,VG_Error,VG_Chi2)
+
+      if( Process.eq.112) call vegas(EvalWeighted_TH,VG_Result,VG_Error,VG_Chi2)
+      if( Process.eq.113) call vegas(EvalWeighted_TH,VG_Result,VG_Error,VG_Chi2)
+    endif
 
     !DATA RUN
+    writeout=.false.
+    if( ReadCSmax ) then 
+        readin=.true.
+    else
+        readin=.false.
+    endif
+
     call ClearHisto()
     warmup = .false.
     Br_counter(:,:) = 0
@@ -2009,7 +2084,7 @@ character(len=160) :: EventLine(0:maxpart)
      FoundHiggsWidth=.false.
      InMadgraphMassBlock=.false.
      do while ( .not.FirstEvent )
-        read(16,fmt="(A160)",IOSTAT=stat,END=99) FirstLines
+        read(io_LHEInFile,fmt="(A160)",IOSTAT=stat,END=99) FirstLines
 
         !Read the Higgs mass
         !JHUGen
@@ -2151,7 +2226,7 @@ character(len=160) :: EventLine(0:maxpart)
      InputFmt1 = ""
 
      do while ( .true. )
-         read(16,"(A)") EventLine(0)
+         read(io_LHEInFile,"(A)") EventLine(0)
          if (UseUnformattedRead) then
              read(EventLine(0),*) EventNumPart
          else
@@ -2162,7 +2237,7 @@ character(len=160) :: EventLine(0:maxpart)
          endif
 !        read event lines
          do nline=1,EventNumPart
-            read(16,fmt="(A160)") EventLine(nline)
+            read(io_LHEInFile,fmt="(A160)") EventLine(nline)
          enddo
          if( EventNumPart.lt.3 .or. EventNumPart.gt.maxpart ) then
             call Error("Number of particles in LHE input exceeds allowed limit",EventNumPart)
@@ -2187,7 +2262,7 @@ character(len=160) :: EventLine(0:maxpart)
          tries = 0
          do while (.true.)
               tries = tries +1
-              read(16,fmt="(A160)",IOSTAT=stat,END=98) OtherLines(1:160)
+              read(io_LHEInFile,fmt="(A160)",IOSTAT=stat,END=98) OtherLines(1:160)
               if(OtherLines(1:30).eq."</LesHouchesEvents>") then
                   goto 98
               elseif( Index(OtherLines,"<event").ne.0 ) then
@@ -2230,7 +2305,7 @@ character(len=100), intent(out) :: BeginEventLine
      FirstEvent = .false.
      WroteHeader = .false.
      do while ( .not.FirstEvent )
-        read(16,fmt="(A160)",IOSTAT=stat,END=99) FirstLines
+        read(io_LHEInFile,fmt="(A160)",IOSTAT=stat,END=99) FirstLines
         if ( FirstLines(1:4).eq."<!--" .and. .not.WroteHeader ) then
             call InitOutput(1d0, 1d14)
             WroteHeader = .true.
@@ -2353,7 +2428,7 @@ call InitReadLHE(BeginEventLine)
      do while ( .true. )
          NEvent=NEvent + 1
          LeptInEvent(:) = 0
-         read(16,"(A)") EventLine(0)
+         read(io_LHEInFile,"(A)") EventLine(0)
          if (UseUnformattedRead) then
              read(EventLine(0),*) EventNumPart, EventProcessId, WeightScaleAqedAqcd
          else
@@ -2364,7 +2439,7 @@ call InitReadLHE(BeginEventLine)
          endif
 !        read event lines
          do nline=1,EventNumPart
-            read(16,fmt="(A160)") EventLine(nline)
+            read(io_LHEInFile,fmt="(A160)") EventLine(nline)
          enddo
          if( EventNumPart.lt.3 .or. EventNumPart.gt.maxpart ) then
             call Error("Number of particles in LHE input exceeds allowed limit",EventNumPart)
@@ -2492,7 +2567,7 @@ call InitReadLHE(BeginEventLine)
          tries = 0
          do while (.true.)
               tries = tries +1
-              read(16,fmt="(A160)",IOSTAT=stat,END=99) OtherLines(1:160)
+              read(io_LHEInFile,fmt="(A160)",IOSTAT=stat,END=99) OtherLines(1:160)
               if(OtherLines(1:30).eq."</LesHouchesEvents>") then
                   if( RequestNLeptons.gt.0 ) then
                     write(io_LHEOutFile,"(A)") "<!-- Lepton filter information:"
@@ -2602,7 +2677,7 @@ call InitReadLHE(BeginEventLine)
      NEvent=0
      do while ( .true. )
          NEvent=NEvent + 1
-         read(16,"(A)") EventLine(0)
+         read(io_LHEInFile,"(A)") EventLine(0)
          if (UseUnformattedRead) then
              read(EventLine(0),*) EventNumPart, EventProcessId, WeightScaleAqedAqcd
          else
@@ -2614,7 +2689,7 @@ call InitReadLHE(BeginEventLine)
 
 !        read event lines
          do nline=1,EventNumPart
-            read(16,"(A)") EventLine(nline)
+            read(io_LHEInFile,"(A)") EventLine(nline)
          enddo
          if( EventNumPart.lt.3 .or. EventNumPart.gt.maxpart ) then
             call Error("Number of particles in LHE input exceeds allowed limit",EventNumPart)
@@ -2908,7 +2983,7 @@ call InitReadLHE(BeginEventLine)
 
 !        read optional lines
          do while (.true.)
-              read(16,fmt="(A120)",IOSTAT=stat,END=99) PDFLine(1:120)
+              read(io_LHEInFile,fmt="(A120)",IOSTAT=stat,END=99) PDFLine(1:120)
               if(PDFLine(1:30).eq."</LesHouchesEvents>") then
                   goto 99
               elseif( Index(PDFLine,"</event").ne.0 ) then
@@ -3667,17 +3742,17 @@ print *, "extending no. of histograms for vbf tests"
           Histo(5)%LowVal = -5d0
           Histo(5)%SetScale= 1d0
 
-          Histo(6)%Info   = "y(j1)"
-          Histo(6)%NBins  = 50
-          Histo(6)%BinSize= 0.2d0
-          Histo(6)%LowVal = -5d0
-          Histo(6)%SetScale= 1d0
+          Histo(6)%Info   = "mz1"
+          Histo(6)%NBins  = 100
+          Histo(6)%BinSize= 2d0*GeV
+          Histo(6)%LowVal = 0d0*GeV
+          Histo(6)%SetScale= 1d0/GeV
 
-          Histo(7)%Info   = "y(j2)"
-          Histo(7)%NBins  = 50
-          Histo(7)%BinSize= 0.2d0
-          Histo(7)%LowVal = -5d0
-          Histo(7)%SetScale= 1d0
+          Histo(7)%Info   = "mz2"
+          Histo(7)%NBins  = 100
+          Histo(7)%BinSize= 2d0*GeV
+          Histo(7)%LowVal = 0d0*GeV
+          Histo(7)%SetScale= 1d0/GeV
 
           Histo(8)%Info   = "m_4l"
           Histo(8)%NBins  = 50
@@ -3844,10 +3919,10 @@ integer :: stat
         !  The Fortran interface was originally written in the era when PDFs could *only* be accessed by number rather than name. Accordingly it doesn't provide a way to look up the ID code, because it expects that you need to have known it in advance!
         !  We can add an ID-lookup function in the "new" Fortran interface for the next version, but I think for now this information isn't available other than through the C++ and Python APIs.
         !  Andy
-        open(unit=io_LHEInFile,file=trim(LHAPDF_DATA_PATH)//"/"//LHAPDFString,form='formatted',access= 'sequential',status='old')
+        open(unit=io_TmpFile,file=trim(LHAPDF_DATA_PATH)//"/"//LHAPDFString,form='formatted',access= 'sequential',status='old')
         pdfsup1 = -999
         do while( pdfsup1.lt.0 )
-            read(16,fmt="(A160)",IOSTAT=stat,END=99) ReadLines
+            read(io_TmpFile,fmt="(A160)",IOSTAT=stat,END=99) ReadLines
             if( ReadLines(1:8).eq."SetIndex" ) then
                 read(ReadLines(10:500),*) pdfsup1
                 pdfsup1 = pdfsup1 + LHAPDFMember
@@ -3855,9 +3930,10 @@ integer :: stat
             endif
         enddo
 99      CONTINUE
+        close(io_TmpFile)
         if( pdfsup1.lt.0 ) then
             print *, "Error: couldn't get the PDF set index.  Writing 0."
-            pdfsup2 = 0
+            pdfsup1 = 0
         endif
         pdfsup2 = pdfsup1
 #else
@@ -3888,7 +3964,7 @@ integer :: stat
             write(io_LHEOutFile ,'(A)') '<LesHouchesEvents version="1.0">'
         endif
         write(io_LHEOutFile ,'(A)') '<!--'
-        write(io_LHEOutFile ,'(A,A6,A)') 'Output from the JHUGenerator ',trim(JHUGen_Version),' described in arXiv:1001.3396 [hep-ph],arXiv:1208.4018 [hep-ph],arXiv:1309.4819 [hep-ph]'
+        write(io_LHEOutFile ,'(A,A6,A)') 'Output from the JHUGenerator ',trim(JHUGen_Version),' described in arXiv:1001.3396 [hep-ph], arXiv:1208.4018 [hep-ph], arXiv:1309.4819 [hep-ph], arXiv:1606.03107 [hep-ph]'
 
         if( writegit ) then
             write(io_LHEOutFile,'(A)') ""
@@ -4013,13 +4089,16 @@ character :: arg*(500)
     if( Process.eq.80 .or. Process.eq.110 .or. Process.eq.111 .or.Process.eq.112 .or. Process.eq.113 ) write(TheUnit,"(4X,A,F8.4,A,F6.4)") "Top quark mass=",m_top*100d0,", width=",Ga_top*100d0
     if( Process.eq.80 .or. Process.eq.110 .or. Process.eq.111 .or. Process.eq.112 .or. Process.eq.113) write(TheUnit,"(4X,A,I2)") "Top quark decay=",TOPDECAYS
     if( Process.eq.90 ) write(TheUnit,"(4X,A,F8.4,A,F6.4)") "Bottom quark mass=",m_top*100d0
-    if( Process.eq.60 .or. Process.eq.61 .or. Process.eq.62 .or. Process.eq.90 .or. &
+    if( Process.eq.50 .or. Process.eq.60 .or. Process.eq.61 .or. Process.eq.62 .or. Process.eq.66 .or. Process.eq.90 .or. &
        ((Process.eq.80 .or. (Process.ge.110 .and. Process.le.113)) .and. m_Top.lt.10d0*GeV) ) then
         write(TheUnit,"(4X,A)") "Jet cuts:"
         write(TheUnit,"(12X,A,F8.2,A)") "pT >= ", pTjetcut/GeV, " GeV"
-        if( Process.eq.60 .or. Process.eq.61 .or. Process.eq.80 .or. Process.eq.90) then
+        if( Process.eq.50 .or. Process.eq.60 .or. Process.eq.61 .or. Process.eq.66 .or. Process.eq.80 .or. Process.eq.90) then
             write(TheUnit,"(8X,A,F8.2)") "DeltaR >= ", Rjet
             write(TheUnit,"(11X,A,F8.2,A)") "mJJ >= ", mJJcut/GeV, " GeV"
+        endif
+        if( Process.eq.66 ) then
+            write(TheUnit,"(11X,A,F10.2,F10.2,A)") "m4l_min/max ", m4l_minmax(1)/GeV,m4l_minmax(2)/GeV, " GeV"
         endif
     endif
     if( (ReadLHEFile) .and. (RequestNLeptons.gt.0) ) then
@@ -4095,7 +4174,10 @@ character :: arg*(500)
         write(TheUnit,"(4X,A,I1)") "Reweighting events using the decay matrix element, using input WidthScheme ", WidthSchemeIn
     endif
     if( Process.le.2 .or. ReadLHEFile ) write(TheUnit,"(4X,A,L)") "Interference: ",includeInterference
-    if( (Process.le.2 .or. ReadLHEFile) .and. (IsAZDecay(DecayMode1) .or. IsAZDecay(DecayMode2))  ) write(TheUnit,"(4X,A,L)") "Intermediate off-shell photons: ",includeGammaStar
+    if( &
+        ( (Process.le.2 .or. ReadLHEFile) .and. (IsAZDecay(DecayMode1) .or. IsAZDecay(DecayMode2)) ) .or. &
+        Process.eq.60 .or. Process.eq.66                                                                  &
+      ) write(TheUnit,"(4X,A,L)") "Intermediate off-shell photons: ",includeGammaStar
 
     write(TheUnit,"(4X,A)") ""
     if( Process.eq.0 .or. Process.eq.60 .or. Process.eq.61 .or. Process.eq.62 .or. Process.eq.66 .or. Process.eq.50 ) then
@@ -4109,44 +4191,104 @@ character :: arg*(500)
             write(TheUnit,"(6X,A,2E16.8,A1)") "ahz2=",ahz2,"i"
             write(TheUnit,"(6X,A,2E16.8,A1)") "ahz3=",ahz3,"i"
         else
-            write(TheUnit,"(6X,A,2E16.8,A1)") "ghg2=",ghg2,"i"
-            write(TheUnit,"(6X,A,2E16.8,A1)") "ghg3=",ghg3,"i"
-            write(TheUnit,"(6X,A,2E16.8,A1)") "ghg4=",ghg4,"i"
-            write(TheUnit,"(6X,A,2E16.8,A1)") "ghz1=",ghz1,"i"
-            write(TheUnit,"(6X,A,2E16.8,A1)") "ghz2=",ghz2,"i"
-            write(TheUnit,"(6X,A,2E16.8,A1)") "ghz3=",ghz3,"i"
-            write(TheUnit,"(6X,A,2E16.8,A1)") "ghz4=",ghz4,"i"
+            if( cdabs(ghg2 ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A1)") "ghg2=",ghg2,"i"
+            if( cdabs(ghg3 ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A1)") "ghg3=",ghg3,"i"
+            if( cdabs(ghg4 ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A1)") "ghg4=",ghg4,"i"
+            if( cdabs(ghz1 ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A1)") "ghz1=",ghz1,"i"
+            if( cdabs(ghz2 ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A1)") "ghz2=",ghz2,"i"
+            if( cdabs(ghz3 ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A1)") "ghz3=",ghz3,"i"
+            if( cdabs(ghz4 ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A1)") "ghz4=",ghz4,"i"
             if( includeGammaStar .or. IsAPhoton(DecayMode2) ) then
                 if( includeGammaStar .or. IsAZDecay(DecayMode1) ) then
-                    write(TheUnit,"(6X,A,2E16.8,A1)") "ghzgs2=",ghzgs2,"i"
-                    write(TheUnit,"(6X,A,2E16.8,A1)") "ghzgs3=",ghzgs3,"i"
-                    write(TheUnit,"(6X,A,2E16.8,A1)") "ghzgs4=",ghzgs4,"i"
+                    if( cdabs(ghzgs2 ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A1)") "ghzgs2=",ghzgs2,"i"
+                    if( cdabs(ghzgs3 ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A1)") "ghzgs3=",ghzgs3,"i"
+                    if( cdabs(ghzgs4 ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A1)") "ghzgs4=",ghzgs4,"i"
                 endif
                 if( includeGammaStar .or. IsAPhoton(DecayMode1) ) then
-                    write(TheUnit,"(6X,A,2E16.8,A1)") "ghgsgs2=",ghgsgs2,"i"
-                    write(TheUnit,"(6X,A,2E16.8,A1)") "ghgsgs3=",ghgsgs3,"i"
-                    write(TheUnit,"(6X,A,2E16.8,A1)") "ghgsgs4=",ghgsgs4,"i"
+                    if( cdabs(ghgsgs2 ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A1)") "ghgsgs2=",ghgsgs2,"i"
+                    if( cdabs(ghgsgs3 ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A1)") "ghgsgs3=",ghgsgs3,"i"
+                    if( cdabs(ghgsgs4 ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A1)") "ghgsgs4=",ghgsgs4,"i"
                 endif
-                if( includeGammaStar) then
+                if( includeGammaStar .and. .not.(Process.eq.60 .or. Process.eq.66)) then
                     write(TheUnit,"(6X,A,F8.2,A)") "m(gammastar) >= ", MPhotonCutoff/GeV, " GeV"
                 endif
             endif
-            if( cdabs(ghz1_prime ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz1_prime= ",ghz1_prime ,"i,","Lambda_z1=",Lambda_z1*100d0
-            if( cdabs(ghz1_prime2).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz1_prime2=",ghz1_prime2,"i,","Lambda_z1=",Lambda_z1*100d0
-            if( cdabs(ghz1_prime3).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz1_prime3=",ghz1_prime3,"i,","Lambda_z1=",Lambda_z1*100d0
-            if( cdabs(ghz1_prime4).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz1_prime4=",ghz1_prime4,"i,","Lambda_z1=",Lambda_z1*100d0
-            if( cdabs(ghz2_prime ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz2_prime= ",ghz2_prime ,"i,","Lambda_z2=",Lambda_z2*100d0
-            if( cdabs(ghz2_prime2).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz2_prime2=",ghz2_prime2,"i,","Lambda_z2=",Lambda_z2*100d0
-            if( cdabs(ghz2_prime3).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz2_prime3=",ghz2_prime3,"i,","Lambda_z2=",Lambda_z2*100d0
-            if( cdabs(ghz2_prime4).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz2_prime4=",ghz2_prime4,"i,","Lambda_z2=",Lambda_z2*100d0
-            if( cdabs(ghz3_prime ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz3_prime= ",ghz3_prime ,"i,","Lambda_z3=",Lambda_z3*100d0
-            if( cdabs(ghz3_prime2).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz3_prime2=",ghz3_prime2,"i,","Lambda_z3=",Lambda_z3*100d0
-            if( cdabs(ghz3_prime3).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz3_prime3=",ghz3_prime3,"i,","Lambda_z3=",Lambda_z3*100d0
-            if( cdabs(ghz3_prime4).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz3_prime4=",ghz3_prime4,"i,","Lambda_z3=",Lambda_z3*100d0
-            if( cdabs(ghz4_prime ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz4_prime= ",ghz4_prime ,"i,","Lambda_z4=",Lambda_z4*100d0
-            if( cdabs(ghz4_prime2).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz4_prime2=",ghz4_prime2,"i,","Lambda_z4=",Lambda_z4*100d0
-            if( cdabs(ghz4_prime3).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz4_prime3=",ghz4_prime3,"i,","Lambda_z4=",Lambda_z4*100d0
-            if( cdabs(ghz4_prime4).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz4_prime4=",ghz4_prime4,"i,","Lambda_z4=",Lambda_z4*100d0
+            if( cdabs(ghz1_prime ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz1_prime= ",ghz1_prime ,"i,","Lambda_z1=",Lambda_z1/GeV
+            if( cdabs(ghz1_prime2).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz1_prime2=",ghz1_prime2,"i,","Lambda_z1=",Lambda_z1/GeV
+            if( cdabs(ghz1_prime3).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz1_prime3=",ghz1_prime3,"i,","Lambda_z1=",Lambda_z1/GeV
+            if( cdabs(ghz1_prime4).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz1_prime4=",ghz1_prime4,"i,","Lambda_z1=",Lambda_z1/GeV
+            if( cdabs(ghz2_prime ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz2_prime= ",ghz2_prime ,"i,","Lambda_z2=",Lambda_z2/GeV
+            if( cdabs(ghz2_prime2).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz2_prime2=",ghz2_prime2,"i,","Lambda_z2=",Lambda_z2/GeV
+            if( cdabs(ghz2_prime3).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz2_prime3=",ghz2_prime3,"i,","Lambda_z2=",Lambda_z2/GeV
+            if( cdabs(ghz2_prime4).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz2_prime4=",ghz2_prime4,"i,","Lambda_z2=",Lambda_z2/GeV
+            if( cdabs(ghz3_prime ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz3_prime= ",ghz3_prime ,"i,","Lambda_z3=",Lambda_z3/GeV
+            if( cdabs(ghz3_prime2).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz3_prime2=",ghz3_prime2,"i,","Lambda_z3=",Lambda_z3/GeV
+            if( cdabs(ghz3_prime3).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz3_prime3=",ghz3_prime3,"i,","Lambda_z3=",Lambda_z3/GeV
+            if( cdabs(ghz3_prime4).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz3_prime4=",ghz3_prime4,"i,","Lambda_z3=",Lambda_z3/GeV
+            if( cdabs(ghz4_prime ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz4_prime= ",ghz4_prime ,"i,","Lambda_z4=",Lambda_z4/GeV
+            if( cdabs(ghz4_prime2).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz4_prime2=",ghz4_prime2,"i,","Lambda_z4=",Lambda_z4/GeV
+            if( cdabs(ghz4_prime3).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz4_prime3=",ghz4_prime3,"i,","Lambda_z4=",Lambda_z4/GeV
+            if( cdabs(ghz4_prime4).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghz4_prime4=",ghz4_prime4,"i,","Lambda_z4=",Lambda_z4/GeV
+            if( cz_q1sq.ne.0) then
+               write(TheUnit,"(6X,A,1PE12.4)") "Lambda_z11= ",Lambda_z11/GeV
+               write(TheUnit,"(6X,A,1PE12.4)") "Lambda_z21= ",Lambda_z21/GeV
+               write(TheUnit,"(6X,A,1PE12.4)") "Lambda_z31= ",Lambda_z31/GeV
+               write(TheUnit,"(6X,A,1PE12.4)") "Lambda_z41= ",Lambda_z41/GeV
+            endif
+            if( cz_q2sq.ne.0) then
+               write(TheUnit,"(6X,A,1PE12.4)") "Lambda_z12= ",Lambda_z12/GeV
+               write(TheUnit,"(6X,A,1PE12.4)") "Lambda_z22= ",Lambda_z22/GeV
+               write(TheUnit,"(6X,A,1PE12.4)") "Lambda_z32= ",Lambda_z32/GeV
+               write(TheUnit,"(6X,A,1PE12.4)") "Lambda_z42= ",Lambda_z42/GeV
+            endif
+            if( cz_q12sq.ne.0) then
+               write(TheUnit,"(6X,A,1PE12.4)") "Lambda_z10= ",Lambda_z10/GeV
+               write(TheUnit,"(6X,A,1PE12.4)") "Lambda_z20= ",Lambda_z20/GeV
+               write(TheUnit,"(6X,A,1PE12.4)") "Lambda_z30= ",Lambda_z30/GeV
+               write(TheUnit,"(6X,A,1PE12.4)") "Lambda_z40= ",Lambda_z40/GeV
+            endif
+
+            if(distinguish_HWWcouplings) then
+               if( cdabs(ghw1 ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A1)") "ghw1=",ghw1,"i"
+               if( cdabs(ghw2 ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A1)") "ghw2=",ghw2,"i"
+               if( cdabs(ghw3 ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A1)") "ghw3=",ghw3,"i"
+               if( cdabs(ghw4 ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A1)") "ghw4=",ghw4,"i"
+               if( cdabs(ghw1_prime ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghw1_prime= ",ghw1_prime ,"i,","Lambda_z1=",Lambda_z1/GeV
+               if( cdabs(ghw1_prime2).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghw1_prime2=",ghw1_prime2,"i,","Lambda_z1=",Lambda_z1/GeV
+               if( cdabs(ghw1_prime3).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghw1_prime3=",ghw1_prime3,"i,","Lambda_z1=",Lambda_z1/GeV
+               if( cdabs(ghw1_prime4).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghw1_prime4=",ghw1_prime4,"i,","Lambda_z1=",Lambda_z1/GeV
+               if( cdabs(ghw2_prime ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghw2_prime= ",ghw2_prime ,"i,","Lambda_z2=",Lambda_z2/GeV
+               if( cdabs(ghw2_prime2).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghw2_prime2=",ghw2_prime2,"i,","Lambda_z2=",Lambda_z2/GeV
+               if( cdabs(ghw2_prime3).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghw2_prime3=",ghw2_prime3,"i,","Lambda_z2=",Lambda_z2/GeV
+               if( cdabs(ghw2_prime4).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghw2_prime4=",ghw2_prime4,"i,","Lambda_z2=",Lambda_z2/GeV
+               if( cdabs(ghw3_prime ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghw3_prime= ",ghw3_prime ,"i,","Lambda_z3=",Lambda_z3/GeV
+               if( cdabs(ghw3_prime2).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghw3_prime2=",ghw3_prime2,"i,","Lambda_z3=",Lambda_z3/GeV
+               if( cdabs(ghw3_prime3).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghw3_prime3=",ghw3_prime3,"i,","Lambda_z3=",Lambda_z3/GeV
+               if( cdabs(ghw3_prime4).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghw3_prime4=",ghw3_prime4,"i,","Lambda_z3=",Lambda_z3/GeV
+               if( cdabs(ghw4_prime ).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghw4_prime= ",ghw4_prime ,"i,","Lambda_z4=",Lambda_z4/GeV
+               if( cdabs(ghw4_prime2).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghw4_prime2=",ghw4_prime2,"i,","Lambda_z4=",Lambda_z4/GeV
+               if( cdabs(ghw4_prime3).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghw4_prime3=",ghw4_prime3,"i,","Lambda_z4=",Lambda_z4/GeV
+               if( cdabs(ghw4_prime4).ne.0d0 ) write(TheUnit,"(6X,A,2E16.8,A2,4X,A,1PE12.4)") "ghw4_prime4=",ghw4_prime4,"i,","Lambda_z4=",Lambda_z4/GeV
+               if( cw_q1sq.ne.0) then
+                  write(TheUnit,"(6X,A,1PE12.4)") "Lambda_w11= ",Lambda_w11/GeV
+                  write(TheUnit,"(6X,A,1PE12.4)") "Lambda_w21= ",Lambda_w21/GeV
+                  write(TheUnit,"(6X,A,1PE12.4)") "Lambda_w31= ",Lambda_w31/GeV
+                  write(TheUnit,"(6X,A,1PE12.4)") "Lambda_w41= ",Lambda_w41/GeV
+               endif
+               if( cw_q2sq.ne.0) then
+                  write(TheUnit,"(6X,A,1PE12.4)") "Lambda_w12= ",Lambda_w12/GeV
+                  write(TheUnit,"(6X,A,1PE12.4)") "Lambda_w22= ",Lambda_w22/GeV
+                  write(TheUnit,"(6X,A,1PE12.4)") "Lambda_w32= ",Lambda_w32/GeV
+                  write(TheUnit,"(6X,A,1PE12.4)") "Lambda_w42= ",Lambda_w42/GeV
+               endif
+               if( cw_q12sq.ne.0) then
+                  write(TheUnit,"(6X,A,1PE12.4)") "Lambda_w10= ",Lambda_w10/GeV
+                  write(TheUnit,"(6X,A,1PE12.4)") "Lambda_w20= ",Lambda_w20/GeV
+                  write(TheUnit,"(6X,A,1PE12.4)") "Lambda_w30= ",Lambda_w30/GeV
+                  write(TheUnit,"(6X,A,1PE12.4)") "Lambda_w40= ",Lambda_w40/GeV
+               endif
+            endif
+
         endif
     elseif( Process.eq.1 ) then
         write(TheUnit,"(4X,A)") "spin-1-VV couplings: "
@@ -4464,9 +4606,10 @@ integer :: TheUnit
     write(TheUnit,"(A90)") " *          I. Anderson, S. Bolognesi, F. Caola, Y. Gao, A. Gritsan, Z. Guo,           *"
     write(TheUnit,"(A90)") " *        C. Martin, K. Melnikov, R.Rontsch, H. Roskes, U. Sarica, M. Schulze,         *"
     write(TheUnit,"(A90)") " *                   N. Tran, A. Whitbeck, M. Xiao, C. You, Y. Zhou                    *"
-    write(TheUnit,"(A90)") " *                Phys.Rev. D81 (2010) 075022;  arXiv:1001.3396 [hep-ph],              *"
-    write(TheUnit,"(A90)") " *                Phys.Rev. D86 (2012) 095031;  arXiv:1208.4018 [hep-ph],              *"
-    write(TheUnit,"(A90)") " *                Phys.Rev. D89 (2014) 035007;  arXiv:1309.4819 [hep-ph].              *"
+    write(TheUnit,"(A90)") " *               Phys.Rev. D81 (2010) 075022;  arXiv:1001.3396  [hep-ph],              *"
+    write(TheUnit,"(A90)") " *               Phys.Rev. D86 (2012) 095031;  arXiv:1208.4018  [hep-ph],              *"
+    write(TheUnit,"(A90)") " *               Phys.Rev. D89 (2014) 035007;  arXiv:1309.4819  [hep-ph],              *"
+    write(TheUnit,"(A90)") " *                                             arXiv:1606.03107 [hep-ph].              *"
     write(TheUnit,"(A90)") " *                                                                                     *"
     write(TheUnit,"(A90)") " ***************************************************************************************"
     write(TheUnit,"(A90)") " "
