@@ -70,7 +70,15 @@ jobs:
           command: |
             mkdir $HOME/githack &&
             echo '#!/bin/bash
-                  cd ~/CMSSW_9_3_2 && eval $(scram ru -sh) && cd - > /dev/null &&
+                  set -euo pipefail
+                  cd ~/CMSSW_9_3_2 && eval $(scram ru -sh) && cd - > /dev/null
+
+                  #hack to fix for Ulascan's account on circleci which doesn't seem to work
+                  if [ $1 == config ] && [ $2 == --global ] && [ $3 == url."ssh://git@github.com".insteadOf ] && [ $4 == "https://github.com" ]; then
+                    echo "actually we want the reverse: https instead of ssh"
+                    git config --global url."https://github.com/".insteadOf "git@github.com:"
+                  fi
+
                   git "$@"
                  ' > $HOME/githack/git &&
             chmod u+x $HOME/githack/git
